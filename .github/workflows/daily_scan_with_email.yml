@@ -1,6 +1,9 @@
 name: Daily Market Scan & Newsletter
 
 on:
+  push:
+    branches:
+      - main
   # Run every weekday at 9:30 PM IST (4:00 PM UTC) - After US market close
   schedule:
     - cron: '0 16 * * 1-5'  # Monday-Friday at 4 PM UTC (9:30 PM IST)

@@ -1,6 +1,9 @@
 name: Daily Stock Screening (Git-Based Storage)
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Run at 7am EST (12:00 UTC) on weekdays
     - cron: '0 12 * * 1-5'

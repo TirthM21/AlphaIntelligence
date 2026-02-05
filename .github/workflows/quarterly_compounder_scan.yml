@@ -1,6 +1,9 @@
 name: Quarterly Compounder Scan
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Run quarterly: Jan 15, Apr 15, Jul 15, Oct 15
     - cron: '0 9 15 1 *'   # January 15 at 9 AM UTC

@@ -1,0 +1,250 @@
+2026-02-05 22:26:30,528 - pyrate_limiter.limiter - INFO - Initializing default bucket(InMemoryBucket) with rates: [limit=10/1000]
+2026-02-05 22:26:30,568 - SystemTest - INFO - ============================================================
+2026-02-05 22:26:30,568 - SystemTest - INFO - STARTING COMPREHENSIVE SYSTEM TEST
+2026-02-05 22:26:30,568 - SystemTest - INFO - ============================================================
+2026-02-05 22:26:30,568 - SystemTest - INFO - [1/8] Testing DBManager...
+2026-02-05 22:26:30,568 - src.database.db_manager - WARNING - DATABASE_URL not set. Database features will be disabled.
+2026-02-05 22:26:30,568 - SystemTest - WARNING -   Result: Skipped (No DATABASE_URL)
+2026-02-05 22:26:30,568 - SystemTest - INFO - [2/8] Testing AIAgent...
+2026-02-05 22:26:30,568 - src.ai.ai_agent - WARNING - FREE_LLM_API_KEY not set. AI features will be disabled.
+2026-02-05 22:26:30,568 - SystemTest - WARNING -   Result: Skipped (No API key)
+2026-02-05 22:26:30,568 - SystemTest - INFO - [3/8] Testing FMPFetcher...
+2026-02-05 22:26:30,570 - src.data.fmp_fetcher - INFO - FMPFetcher initialized
+2026-02-05 22:26:30,570 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/MSFT from API...
+2026-02-05 22:26:32,273 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/MSFT)
+2026-02-05 22:26:32,274 - SystemTest - ERROR -   Result: FAIL (No data)
+2026-02-05 22:26:32,274 - SystemTest - INFO - [4/8] Testing SECFetcher...
+2026-02-05 22:26:33,012 - src.data.sec_fetcher - INFO - SECFetcher initialized (dir: data\test_sec)
+2026-02-05 22:26:33,014 - src.data.sec_fetcher - INFO - SEC CACHE HIT [NVDA]: Filing already on disk.
+2026-02-05 22:26:33,014 - SystemTest - INFO -   Result: Success (Cached in data\test_sec)
+2026-02-05 22:26:33,014 - SystemTest - INFO - [5/8] Running Scan for 15 Stocks...
+2026-02-05 22:26:33,014 - src.data.fetcher - INFO - YahooFinanceFetcher initialized with cache_dir: ./data/cache
+2026-02-05 22:26:33,564 - src.data.sec_fetcher - INFO - SECFetcher initialized (dir: data\sec_filings)
+2026-02-05 22:26:33,564 - src.data.fmp_fetcher - INFO - FMPFetcher initialized
+2026-02-05 22:26:33,564 - src.data.enhanced_fundamentals - INFO - FMP available - will use for enhanced fundamentals
+2026-02-05 22:26:33,564 - src.screening.optimized_batch_processor - INFO - OptimizedBatchProcessor initialized
+2026-02-05 22:26:33,564 - src.screening.optimized_batch_processor - INFO - Workers: 5, Delay: 0.2s
+2026-02-05 22:26:33,564 - src.screening.optimized_batch_processor - INFO - Effective rate: ~25.0 TPS
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - Progress cleared
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - ============================================================
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - OPTIMIZED BATCH PROCESSING STARTED
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - Tickers: 15
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - Workers: 5
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - Rate: ~25.0 TPS
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - Est. time: 0.0 hours
+2026-02-05 22:26:33,567 - src.screening.optimized_batch_processor - INFO - ============================================================
+2026-02-05 22:26:33,568 - src.screening.optimized_batch_processor - INFO - Fetching SPY data...
+2026-02-05 22:26:33,678 - src.data.fetcher - INFO - Loaded data from cache: SPY_prices_1y_1d.pkl
+2026-02-05 22:26:33,683 - src.screening.optimized_batch_processor - INFO - SPY ready: 252 days, $676.35
+2026-02-05 22:26:33,684 - src.screening.optimized_batch_processor - INFO - Processing 15 remaining tickers
+2026-02-05 22:26:33,687 - src.data.fetcher - INFO - Loaded data from cache: AAPL_prices_5y_1d.pkl
+2026-02-05 22:26:33,744 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for AAPL
+2026-02-05 22:26:33,744 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/AAPL from API...
+2026-02-05 22:26:33,887 - src.data.fetcher - INFO - Loaded data from cache: MSFT_prices_5y_1d.pkl
+2026-02-05 22:26:33,892 - src.screening.phase_indicators - WARNING - Stock has non-DatetimeIndex: <class 'pandas.core.indexes.range.RangeIndex'>
+2026-02-05 22:26:33,905 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for MSFT
+2026-02-05 22:26:33,907 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/MSFT from API...
+2026-02-05 22:26:34,095 - src.data.fetcher - INFO - Loaded data from cache: GOOGL_prices_5y_1d.pkl
+2026-02-05 22:26:34,099 - src.screening.phase_indicators - WARNING - Stock has non-DatetimeIndex: <class 'pandas.core.indexes.range.RangeIndex'>
+2026-02-05 22:26:34,109 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for GOOGL
+2026-02-05 22:26:34,110 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/GOOGL from API...
+2026-02-05 22:26:34,289 - src.data.fetcher - INFO - Loaded data from cache: AMZN_prices_5y_1d.pkl
+2026-02-05 22:26:34,313 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for AMZN
+2026-02-05 22:26:34,313 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/AMZN from API...
+2026-02-05 22:26:34,488 - src.data.fetcher - INFO - Loaded data from cache: NVDA_prices_5y_1d.pkl
+2026-02-05 22:26:34,490 - src.screening.optimized_batch_processor - INFO - Progress: 1/15 (6.7%) | Rate: 1.2/sec | Filtered: 20.0% | Errors: 0.0% | ETA: 0:00:11
+2026-02-05 22:26:34,710 - src.data.fetcher - INFO - Loaded data from cache: META_prices_5y_1d.pkl
+2026-02-05 22:26:34,916 - src.data.fetcher - INFO - Loaded data from cache: TSLA_prices_5y_1d.pkl
+2026-02-05 22:26:35,126 - src.data.fetcher - INFO - Loaded data from cache: BRK-B_prices_5y_1d.pkl
+2026-02-05 22:26:35,153 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for BRK-B
+2026-02-05 22:26:35,155 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/BRK-B from API...
+2026-02-05 22:26:35,523 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/AAPL)
+2026-02-05 22:26:35,525 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/AAPL from API...
+2026-02-05 22:26:35,957 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/MSFT)
+2026-02-05 22:26:35,959 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/MSFT from API...
+2026-02-05 22:26:36,242 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/GOOGL)
+2026-02-05 22:26:36,244 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/GOOGL from API...
+2026-02-05 22:26:36,301 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/AMZN)
+2026-02-05 22:26:36,304 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/AMZN from API...
+2026-02-05 22:26:37,117 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/BRK-B)
+2026-02-05 22:26:37,119 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/BRK-B from API...
+2026-02-05 22:26:38,327 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/AAPL)
+2026-02-05 22:26:38,333 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/AAPL from API...
+2026-02-05 22:26:38,631 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/MSFT)
+2026-02-05 22:26:38,634 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/MSFT from API...
+2026-02-05 22:26:39,133 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/GOOGL)
+2026-02-05 22:26:39,135 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/GOOGL from API...
+2026-02-05 22:26:39,499 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/AMZN)
+2026-02-05 22:26:39,501 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/AMZN from API...
+2026-02-05 22:26:39,632 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/BRK-B)
+2026-02-05 22:26:39,634 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/BRK-B from API...
+2026-02-05 22:26:40,643 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/AAPL)
+2026-02-05 22:26:40,646 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/AAPL from API...
+2026-02-05 22:26:41,047 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/MSFT)
+2026-02-05 22:26:41,049 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/MSFT from API...
+2026-02-05 22:26:41,594 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/GOOGL)
+2026-02-05 22:26:41,597 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/GOOGL from API...
+2026-02-05 22:26:41,749 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/AMZN)
+2026-02-05 22:26:41,751 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/AMZN from API...
+2026-02-05 22:26:41,970 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/BRK-B)
+2026-02-05 22:26:41,972 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/BRK-B from API...
+2026-02-05 22:26:43,189 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/AAPL)
+2026-02-05 22:26:43,193 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/AAPL from API...
+2026-02-05 22:26:43,500 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/MSFT)
+2026-02-05 22:26:43,503 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/MSFT from API...
+2026-02-05 22:26:43,735 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/GOOGL)
+2026-02-05 22:26:43,738 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/GOOGL from API...
+2026-02-05 22:26:43,927 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/AMZN)
+2026-02-05 22:26:43,929 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/AMZN from API...
+2026-02-05 22:26:44,000 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/BRK-B)
+2026-02-05 22:26:44,002 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/BRK-B from API...
+2026-02-05 22:26:45,853 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/AAPL)
+2026-02-05 22:26:46,027 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/MSFT)
+2026-02-05 22:26:46,261 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/GOOGL)
+2026-02-05 22:26:46,765 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/BRK-B)
+2026-02-05 22:26:46,813 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/AMZN)
+2026-02-05 22:26:48,183 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=AAPL&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:26:48,188 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for AAPL, falling back to yfinance
+2026-02-05 22:26:48,188 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [AAPL]: Source = yfinance (Standard)
+2026-02-05 22:26:48,400 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=MSFT&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:26:48,401 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for MSFT, falling back to yfinance
+2026-02-05 22:26:48,401 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [MSFT]: Source = yfinance (Standard)
+2026-02-05 22:26:48,871 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=AMZN&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:26:48,871 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=GOOGL&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:26:48,874 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for AMZN, falling back to yfinance
+2026-02-05 22:26:48,876 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for GOOGL, falling back to yfinance
+2026-02-05 22:26:48,876 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [AMZN]: Source = yfinance (Standard)
+2026-02-05 22:26:48,876 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [GOOGL]: Source = yfinance (Standard)
+2026-02-05 22:26:48,971 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=BRK-B&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:26:48,974 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for BRK-B, falling back to yfinance
+2026-02-05 22:26:48,974 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [BRK-B]: Source = yfinance (Standard)
+2026-02-05 22:26:49,728 - src.data.fetcher - INFO - Loaded data from cache: UNH_prices_5y_1d.pkl
+2026-02-05 22:26:49,845 - src.data.fetcher - INFO - Loaded data from cache: JNJ_prices_5y_1d.pkl
+2026-02-05 22:26:49,863 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for JNJ
+2026-02-05 22:26:49,865 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/JNJ from API...
+2026-02-05 22:26:49,942 - src.screening.optimized_batch_processor - ERROR - [ERROR #1] TypeError on BRK-B: '>' not supported between instances of 'NoneType' and 'int'
+2026-02-05 22:26:50,043 - src.data.fetcher - INFO - Loaded data from cache: V_prices_5y_1d.pkl
+2026-02-05 22:26:50,243 - src.data.fetcher - INFO - Loaded data from cache: XOM_prices_5y_1d.pkl
+2026-02-05 22:26:50,262 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for XOM
+2026-02-05 22:26:50,263 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/XOM from API...
+2026-02-05 22:26:50,445 - src.data.fetcher - INFO - Loaded data from cache: TSM_prices_5y_1d.pkl
+2026-02-05 22:26:50,472 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for TSM
+2026-02-05 22:26:50,473 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/TSM from API...
+2026-02-05 22:26:50,645 - src.data.fetcher - INFO - Loaded data from cache: WMT_prices_5y_1d.pkl
+2026-02-05 22:26:50,671 - src.data.fmp_fetcher - INFO - Fetching comprehensive fundamentals for WMT
+2026-02-05 22:26:50,671 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching income-statement/WMT from API...
+2026-02-05 22:26:50,863 - src.data.fetcher - INFO - Loaded data from cache: MA_prices_5y_1d.pkl
+2026-02-05 22:26:51,837 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/JNJ)
+2026-02-05 22:26:51,839 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/JNJ from API...
+2026-02-05 22:26:52,555 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/XOM)
+2026-02-05 22:26:52,558 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/XOM from API...
+2026-02-05 22:26:52,776 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/WMT)
+2026-02-05 22:26:52,776 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/WMT from API...
+2026-02-05 22:26:52,906 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: income-statement/TSM)
+2026-02-05 22:26:52,911 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching balance-sheet-statement/TSM from API...
+2026-02-05 22:26:53,663 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/JNJ)
+2026-02-05 22:26:53,665 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/JNJ from API...
+2026-02-05 22:26:54,488 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/XOM)
+2026-02-05 22:26:54,490 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/XOM from API...
+2026-02-05 22:26:54,750 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/TSM)
+2026-02-05 22:26:54,752 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/TSM from API...
+2026-02-05 22:26:54,787 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: balance-sheet-statement/WMT)
+2026-02-05 22:26:54,789 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching cash-flow-statement/WMT from API...
+2026-02-05 22:26:55,311 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/JNJ)
+2026-02-05 22:26:55,315 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/JNJ from API...
+2026-02-05 22:26:56,446 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/XOM)
+2026-02-05 22:26:56,450 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/XOM from API...
+2026-02-05 22:26:56,564 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/WMT)
+2026-02-05 22:26:56,566 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/WMT from API...
+2026-02-05 22:26:56,661 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: cash-flow-statement/TSM)
+2026-02-05 22:26:56,665 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching key-metrics/TSM from API...
+2026-02-05 22:26:57,101 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/JNJ)
+2026-02-05 22:26:57,103 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/JNJ from API...
+2026-02-05 22:26:58,557 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/XOM)
+2026-02-05 22:26:58,560 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/XOM from API...
+2026-02-05 22:26:58,718 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/WMT)
+2026-02-05 22:26:58,721 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/WMT from API...
+2026-02-05 22:26:58,831 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: key-metrics/TSM)
+2026-02-05 22:26:58,834 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching discounted-cash-flow/TSM from API...
+2026-02-05 22:26:59,846 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/JNJ)
+2026-02-05 22:27:01,355 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/XOM)
+2026-02-05 22:27:01,550 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/WMT)
+2026-02-05 22:27:01,997 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: discounted-cash-flow/TSM)
+2026-02-05 22:27:02,284 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=JNJ&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:27:02,286 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for JNJ, falling back to yfinance
+2026-02-05 22:27:02,286 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [JNJ]: Source = yfinance (Standard)
+2026-02-05 22:27:03,081 - src.screening.optimized_batch_processor - ERROR - [ERROR #2] TypeError on JNJ: '>' not supported between instances of 'NoneType' and 'int'
+2026-02-05 22:27:03,963 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=XOM&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:27:03,966 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for XOM, falling back to yfinance
+2026-02-05 22:27:03,966 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [XOM]: Source = yfinance (Standard)
+2026-02-05 22:27:04,272 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=WMT&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:27:04,274 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for WMT, falling back to yfinance
+2026-02-05 22:27:04,274 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [WMT]: Source = yfinance (Standard)
+2026-02-05 22:27:04,370 - src.data.fmp_fetcher - ERROR - Error fetching insider trading: 403 Client Error: Forbidden for url: https://financialmodelingprep.com/api/v4/insider-trading?symbol=TSM&page=0&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-05 22:27:04,374 - src.data.enhanced_fundamentals - WARNING - FMP returned no data for TSM, falling back to yfinance
+2026-02-05 22:27:04,374 - src.data.enhanced_fundamentals - INFO - FUNDAMENTALS [TSM]: Source = yfinance (Standard)
+2026-02-05 22:27:04,642 - src.screening.optimized_batch_processor - ERROR - [ERROR #3] TypeError on XOM: '>' not supported between instances of 'NoneType' and 'int'
+2026-02-05 22:27:05,290 - src.screening.optimized_batch_processor - ERROR - [ERROR #4] TypeError on TSM: '>' not supported between instances of 'NoneType' and 'int'
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - ============================================================
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - OPTIMIZED BATCH PROCESSING COMPLETE
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - Time: 0:00:31
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - Processed: 15 tickers
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - Analyzed: 7 stocks
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - Filtered: 4 (26.7%)
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - Actual rate: 0.47 TPS
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - Error rate: 26.7%
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - ------------------------------------------------------------
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - FILTER BREAKDOWN:
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO -   severe_drawdown_60pct: 4 (100.0%)
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - ------------------------------------------------------------
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - ERROR BREAKDOWN:
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO -   TypeError: 4 (100.0%)
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO -     Example: BRK-B - '>' not supported between instances of 'NoneType' and 'int'
+2026-02-05 22:27:05,297 - src.screening.optimized_batch_processor - INFO - ============================================================
+2026-02-05 22:27:05,297 - SystemTest - INFO -   Result: Processed 7 stocks
+2026-02-05 22:27:05,297 - SystemTest - INFO - [6/8] Testing Signal Scoring & Mixture-of-Experts...
+2026-02-05 22:27:05,306 - SystemTest - INFO -   Result: Generated 5 buy signals with enrichment
+2026-02-05 22:27:05,306 - SystemTest - INFO - [7/8] Testing Portfolio Manager Reports...
+2026-02-05 22:27:05,306 - src.database.db_manager - WARNING - DATABASE_URL not set. Database features will be disabled.
+2026-02-05 22:27:05,306 - src.reporting.portfolio_manager - INFO - Generating advanced portfolio reports...
+2026-02-05 22:27:05,310 - src.reporting.portfolio_manager - INFO - Ownership report saved to data\test_reports\ownership_report_20260205.txt
+2026-02-05 22:27:05,316 - src.reporting.portfolio_manager - INFO - Allocation plan saved to data\test_reports\allocation_plan_20260205.csv
+2026-02-05 22:27:05,316 - src.reporting.portfolio_manager - INFO - Rebalance actions saved to data\test_reports\rebalance_actions_20260205.txt
+2026-02-05 22:27:05,316 - src.reporting.portfolio_manager - INFO - No historical recommendations found for alpha report.
+2026-02-05 22:27:05,316 - SystemTest - INFO -   Result: Success (Reports generated in ./data/test_reports)
+2026-02-05 22:27:05,316 - SystemTest - INFO - [8/8] Testing Newsletter Generation...
+2026-02-05 22:27:06,175 - src.data.sec_fetcher - INFO - SECFetcher initialized (dir: data\sec_filings)
+2026-02-05 22:27:06,176 - src.data.fmp_fetcher - INFO - FMPFetcher initialized
+2026-02-05 22:27:06,176 - src.data.enhanced_fundamentals - INFO - FMP available - will use for enhanced fundamentals
+2026-02-05 22:27:06,176 - src.ai.ai_agent - WARNING - FREE_LLM_API_KEY not set. AI features will be disabled.
+2026-02-05 22:27:06,176 - src.reporting.newsletter_generator - INFO - Generating professional daily newsletter to data\newsletters\daily_newsletter_20260205_222706.md...
+2026-02-05 22:27:06,178 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching economic_indicator/CPI from API...
+2026-02-05 22:27:08,255 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: economic_indicator/CPI)
+2026-02-05 22:27:08,257 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching economic_indicator/GDP from API...
+2026-02-05 22:27:10,163 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: economic_indicator/GDP)
+2026-02-05 22:27:10,165 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching economic_indicator/unemploymentRate from API...
+2026-02-05 22:27:12,440 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: economic_indicator/unemploymentRate)
+2026-02-05 22:27:12,442 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching economic_indicator/federalFunds from API...
+2026-02-05 22:27:15,613 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: economic_indicator/federalFunds)
+2026-02-05 22:27:15,616 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching stock_news from API...
+2026-02-05 22:27:18,118 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: stock_news)
+2026-02-05 22:27:18,120 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching stock_news from API...
+2026-02-05 22:27:19,767 - src.data.fmp_fetcher - ERROR - FMP API 403 Error: Legacy Endpoint : Due to Legacy endpoints being no longer supported - This endpoint is only available for legacy users who have valid subscriptions prior August 31, 2025. Please visit our documentation page https://site.financialmodelingprep.com/developer/docs for our current APIs. . (Endpoint: stock_news)
+2026-02-05 22:27:19,769 - src.reporting.newsletter_generator - INFO - FMP news unavailable, falling back to basic news...
+2026-02-05 22:27:20,832 - SystemTest - ERROR -   Result: FAIL - unsupported format string passed to NoneType.__format__
+2026-02-05 22:27:20,832 - SystemTest - INFO - 
+============================================================
+2026-02-05 22:27:20,833 - SystemTest - INFO - SYSTEM TEST SUMMARY REPORT
+2026-02-05 22:27:20,833 - SystemTest - INFO - ============================================================
+2026-02-05 22:27:20,833 - SystemTest - INFO - ============================================================
+2026-02-05 22:27:20,833 - SystemTest - INFO - Test Complete. Note: Emailing was disabled per instructions.
+Module               | Status   | Details
+------------------------------------------------------------
+Database             | SKIP     | No URL
+AI Agent             | SKIP     | No key
+FMP API              | FAIL     | No data returned
+SEC Fetcher          | PASS     | Success (Cached in data\test_sec)
+Batch Scanner        | PASS     | 7/15 analyzed
+Signal Engine        | PASS     | 5 signals scored
+Portfolio Reports    | PASS     | Files created
+Newsletter Gen       | FAIL     | unsupported format string passed to NoneType.__format__

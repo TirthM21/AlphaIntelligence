@@ -1,0 +1,884 @@
+"""Phase-based technical indicators for the Quant Analysis Engine.
+
+This module implements all technical indicators required for the Phase system:
+- Phase classification (1-4)
+- SMA calculations with slope analysis
+- Relative Strength vs SPY
+- Volatility contraction detection
+- Breakout detection
+- Volume analysis
+"""
+
+import logging
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+def calculate_sma(prices: pd.Series, period: int) -> pd.Series:
+    """Calculate Simple Moving Average."""
+    if len(prices) < period:
+        return pd.Series([np.nan] * len(prices), index=prices.index)
+    return prices.rolling(window=period, min_periods=period).mean()
+
+
+def calculate_slope(series: pd.Series, periods: int = 20) -> float:
+    """Calculate the slope of a series over recent periods.
+
+    Args:
+        series: Price series to calculate slope
+        periods: Number of periods to look back
+
+    Returns:
+        Slope as percentage change per day
+    """
+    if len(series) < periods or series.isna().all():
+        return 0.0
+
+    recent = series.iloc[-periods:].dropna()
+    if len(recent) < 2:
+        return 0.0
+
+    # Linear regression slope
+    x = np.arange(len(recent))
+    y = recent.values
+
+    if np.std(x) == 0:
+        return 0.0
+
+    slope = np.polyfit(x, y, 1)[0]
+
+    # Convert to percentage per day
+    avg_price = np.mean(y)
+    if avg_price == 0:
+        return 0.0
+
+    slope_pct = (slope / avg_price) * 100
+
+    return slope_pct
+
+
+def calculate_relative_strength(stock_prices: pd.Series, spy_prices: pd.Series,
+                                  period: int = 63) -> pd.Series:
+    """Calculate Relative Strength vs SPY.
+
+    RS = (Stock Price / SPY Price) * 100
+
+    Args:
+        stock_prices: Stock closing prices
+        spy_prices: SPY closing prices
+        period: Period for RS calculation (default 63 = ~3 months)
+
+    Returns:
+        Series of RS values
+    """
+    if len(stock_prices) == 0 or len(spy_prices) == 0:
+        return pd.Series([np.nan] * len(stock_prices), index=stock_prices.index)
+
+    # Normalize indexes to timezone-naive DatetimeIndex to avoid comparison errors
+    # yfinance sometimes returns timezone-aware data, sometimes naive, sometimes RangeIndex
+    stock_prices = stock_prices.copy()
+    spy_prices = spy_prices.copy()
+
+    # Ensure both have DatetimeIndex (not RangeIndex)
+    if not isinstance(stock_prices.index, pd.DatetimeIndex):
+        logger.warning(f"Stock has non-DatetimeIndex: {type(stock_prices.index)}")
+        return pd.Series([np.nan] * len(stock_prices), index=stock_prices.index)
+
+    if not isinstance(spy_prices.index, pd.DatetimeIndex):
+        logger.warning(f"SPY has non-DatetimeIndex: {type(spy_prices.index)}")
+        return pd.Series([np.nan] * len(stock_prices), index=stock_prices.index)
+
+    # Remove timezone info if present (convert to timezone-naive)
+    if stock_prices.index.tz is not None:
+        stock_prices.index = stock_prices.index.tz_localize(None)
+
+    if spy_prices.index.tz is not None:
+        spy_prices.index = spy_prices.index.tz_localize(None)
+
+    # Align the series by DATE (not position) - stocks and SPY trade on same days
+    # Use reindex to align SPY to stock dates, then forward fill any gaps
+    spy_aligned = spy_prices.reindex(stock_prices.index, method='ffill')
+
+    # Check if we have valid aligned data
+    if spy_aligned.isna().all():
+        logger.warning("SPY alignment failed - all NaN after reindex")
+        return pd.Series([np.nan] * len(stock_prices), index=stock_prices.index)
+
+    # Calculate RS
+    rs = (stock_prices / spy_aligned) * 100
+
+    # Fill any remaining NaN with forward fill
+    rs = rs.ffill()
+
+    return rs
+
+
+def calculate_rs_slope(rs_series: pd.Series, periods: int = 15) -> float:
+    """Calculate the slope of RS over recent periods (3-week slope).
+
+    Args:
+        rs_series: Relative strength series
+        periods: Number of periods (default 15 = ~3 weeks)
+
+    Returns:
+        RS slope as float
+    """
+    return calculate_slope(rs_series, periods)
+
+
+def detect_volatility_contraction(prices: pd.Series, window: int = 20) -> Dict[str, any]:
+    """Detect volatility contraction (squeeze).
+
+    Measures:
+    - ATR contraction
+    - Bollinger Band width narrowing
+    - Range compression
+
+    Args:
+        prices: Price series
+        window: Lookback window
+
+    Returns:
+        Dict with contraction metrics
+    """
+    if len(prices) < window * 2:
+        return {
+            'is_contracting': False,
+            'contraction_quality': 0.0,
+            'current_volatility': 0.0
+        }
+
+    # Calculate rolling standard deviation (volatility proxy)
+    volatility = prices.rolling(window=window).std()
+
+    if len(volatility.dropna()) < 2:
+        return {
+            'is_contracting': False,
+            'contraction_quality': 0.0,
+            'current_volatility': 0.0
+        }
+
+    current_vol = volatility.iloc[-1]
+    avg_vol = volatility.iloc[-window*2:-window].mean()
+
+    # Contraction = current volatility is below average
+    contraction_ratio = current_vol / avg_vol if avg_vol > 0 else 1.0
+
+    is_contracting = contraction_ratio < 0.7  # Current vol < 70% of average
+
+    # Quality score: lower ratio = higher quality
+    quality = max(0, min(100, (1 - contraction_ratio) * 100))
+
+    return {
+        'is_contracting': is_contracting,
+        'contraction_quality': round(quality, 2),
+        'current_volatility': round(current_vol, 2),
+        'contraction_ratio': round(contraction_ratio, 2)
+    }
+
+
+def find_base_high(prices: pd.Series, window: int = 60) -> Optional[float]:
+    """Find the consolidation/base high over recent window.
+
+    Args:
+        prices: Price series
+        window: Lookback window for base formation
+
+    Returns:
+        Base high price level
+    """
+    if len(prices) < window:
+        return None
+
+    recent_high = prices.iloc[-window:].max()
+    return float(recent_high)
+
+
+def find_pivot_high(prices: pd.Series, window: int = 20) -> Optional[float]:
+    """Find recent pivot high (resistance level).
+
+    Args:
+        prices: Price series
+        window: Lookback window
+
+    Returns:
+        Pivot high price level
+    """
+    if len(prices) < window:
+        return None
+
+    pivot = prices.iloc[-window:].max()
+    return float(pivot)
+
+
+def calculate_volume_ratio(volumes: pd.Series, period: int = 20) -> float:
+    """Calculate current volume vs average volume ratio.
+
+    Args:
+        volumes: Volume series
+        period: Period for average
+
+    Returns:
+        Ratio (current / average)
+    """
+    if len(volumes) < period + 1:
+        return 1.0
+
+    current = volumes.iloc[-1]
+    avg = volumes.iloc[-period-1:-1].mean()
+
+    if avg == 0:
+        return 1.0
+
+    return current / avg
+
+
+def calculate_distance_from_sma(price: float, sma: float) -> float:
+    """Calculate percentage distance from SMA.
+
+    Args:
+        price: Current price
+        sma: SMA value
+
+    Returns:
+        Percentage distance
+    """
+    if sma == 0:
+        return 0.0
+
+    return ((price - sma) / sma) * 100
+
+
+def classify_phase(price_data: pd.DataFrame, current_price: float) -> Dict[str, any]:
+    """Classify current market phase (1-4) based on price action rules.
+
+    Phase 1: Base Building / Compression
+    - 50 SMA flat or turning up slightly
+    - 200 SMA flat
+    - Price trading tightly
+    - Volatility contracting
+    - Volume below average
+
+    Phase 2: Uptrend / Breakout
+    - Price > 50 SMA
+    - 50 SMA > 200 SMA
+    - Both SMAs sloping upward
+    - Breakout above resistance
+    - Volume expansion
+
+    Phase 3: Distribution / Top
+    - Price extended above 50 SMA
+    - Momentum weakening
+    - Flattening of 50 SMA
+
+    Phase 4: Downtrend
+    - Price < 50 and 200 SMA
+    - 50 SMA < 200 SMA
+    - Both slopes downward
+
+    Args:
+        price_data: DataFrame with OHLCV data
+        current_price: Current stock price
+
+    Returns:
+        Dict with phase info
+    """
+    if len(price_data) < 200:
+        return {
+            'phase': 0,
+            'phase_name': 'Insufficient Data',
+            'confidence': 0.0,
+            'reasons': ['Need at least 200 days of data']
+        }
+
+    close = price_data['Close']
+    high = price_data['High']
+    low = price_data['Low']
+    volume = price_data.get('Volume', pd.Series([]))
+
+    # Calculate SMAs (50, 150, 200 for Minervini Trend Template)
+    sma_50 = calculate_sma(close, 50)
+    sma_150 = calculate_sma(close, 150)
+    sma_200 = calculate_sma(close, 200)
+
+    if sma_50.isna().all() or sma_200.isna().all():
+        return {
+            'phase': 0,
+            'phase_name': 'Insufficient Data',
+            'confidence': 0.0,
+            'reasons': ['Cannot calculate SMAs']
+        }
+
+    sma_50_val = sma_50.iloc[-1]
+    sma_150_val = sma_150.iloc[-1] if not sma_150.isna().all() else 0
+    sma_200_val = sma_200.iloc[-1]
+
+    # Calculate 52-week high/low for Minervini criteria
+    if len(close) >= 252:  # ~1 year of trading days
+        week_52_high = high.iloc[-252:].max()
+        week_52_low = low.iloc[-252:].min()
+    else:
+        week_52_high = high.max()
+        week_52_low = low.min()
+
+    # Calculate slopes
+    slope_50 = calculate_slope(sma_50, 20)
+    slope_200 = calculate_slope(sma_200, 20)
+
+    # Volatility analysis
+    vol_data = detect_volatility_contraction(close, 20)
+
+    # Volume analysis
+    if len(volume) > 20:
+        avg_volume = volume.iloc[-20:].mean()
+        current_volume = volume.iloc[-1]
+        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+    else:
+        volume_ratio = 1.0
+
+    reasons = []
+    confidence = 0.0
+
+    # Phase 4: Downtrend (check first)
+    if (current_price < sma_50_val and
+        current_price < sma_200_val and
+        sma_50_val < sma_200_val):
+
+        phase = 4
+        phase_name = 'Downtrend'
+        reasons.append(f'Price ({current_price:.2f}) below both 50 SMA ({sma_50_val:.2f}) and 200 SMA ({sma_200_val:.2f})')
+        reasons.append(f'50 SMA below 200 SMA (Death Cross)')
+        confidence = 70
+
+        if slope_50 < 0 and slope_200 < 0:
+            reasons.append('Both SMAs declining')
+            confidence += 20
+
+        if slope_50 < 0:
+            confidence += 10
+
+    # Phase 2: Uptrend / Breakout
+    elif (current_price > sma_50_val and
+          sma_50_val > sma_200_val and
+          slope_50 > 0):
+
+        phase = 2
+        phase_name = 'Uptrend/Breakout'
+        reasons.append(f'Price ({current_price:.2f}) above 50 SMA ({sma_50_val:.2f})')
+        reasons.append(f'50 SMA above 200 SMA (Golden Cross)')
+        reasons.append(f'50 SMA rising (slope: {slope_50:.3f}%)')
+        confidence = 70
+
+        if slope_200 > 0:
+            reasons.append(f'200 SMA also rising (slope: {slope_200:.3f}%)')
+            confidence += 15
+
+        if volume_ratio > 1.2:
+            reasons.append(f'Volume expansion ({volume_ratio:.1f}x average)')
+            confidence += 15
+
+    # Phase 3: Distribution / Top
+    elif (current_price > sma_50_val and
+          calculate_distance_from_sma(current_price, sma_50_val) > 25):
+
+        phase = 3
+        phase_name = 'Distribution/Top'
+        distance = calculate_distance_from_sma(current_price, sma_50_val)
+        reasons.append(f'Price extended {distance:.1f}% above 50 SMA')
+        confidence = 60
+
+        if slope_50 < 0.05:  # Flattening
+            reasons.append('50 SMA flattening')
+            confidence += 20
+
+        if abs(slope_50) < abs(slope_200) * 0.5:
+            reasons.append('Momentum weakening')
+            confidence += 20
+
+    # Phase 1: Base Building
+    else:
+        phase = 1
+        phase_name = 'Base Building'
+        reasons.append('Price in consolidation pattern')
+        confidence = 50
+
+        if abs(slope_50) < 0.1:
+            reasons.append(f'50 SMA flat (slope: {slope_50:.3f}%)')
+            confidence += 15
+
+        if abs(slope_200) < 0.05:
+            reasons.append(f'200 SMA flat (slope: {slope_200:.3f}%)')
+            confidence += 10
+
+        if vol_data['is_contracting']:
+            reasons.append(f'Volatility contracting ({vol_data["contraction_quality"]:.0f}% quality)')
+            confidence += 15
+
+        if volume_ratio < 1.0:
+            reasons.append(f'Volume below average ({volume_ratio:.1f}x)')
+            confidence += 10
+
+    return {
+        'phase': phase,
+        'phase_name': phase_name,
+        'confidence': min(confidence, 100),
+        'reasons': reasons,
+        'sma_50': round(sma_50_val, 2),
+        'sma_150': round(sma_150_val, 2),
+        'sma_200': round(sma_200_val, 2),
+        'slope_50': round(slope_50, 4),
+        'slope_200': round(slope_200, 4),
+        'distance_from_50sma': round(calculate_distance_from_sma(current_price, sma_50_val), 2),
+        'distance_from_200sma': round(calculate_distance_from_sma(current_price, sma_200_val), 2),
+        'week_52_high': round(week_52_high, 2),
+        'week_52_low': round(week_52_low, 2),
+        'volatility_contraction': vol_data
+    }
+
+
+def validate_minervini_trend_template(
+    current_price: float,
+    phase_info: Dict,
+    sma_200_series: pd.Series
+) -> Dict[str, any]:
+    """Validate Minervini Trend Template (SEPA - Specific Entry Point Analysis).
+
+    Based on Mark Minervini's methodology from "Trade Like a Stock Market Wizard"
+    and "Think & Trade Like a Champion".
+
+    The Trend Template identifies stocks in confirmed Stage 2 uptrends with:
+    1. Price > 150 SMA AND 200 SMA
+    2. 150 SMA > 200 SMA
+    3. 200 SMA trending up for at least 1 month (preferably 4-5 months)
+    4. 50 SMA > 150 SMA > 200 SMA (strongest configuration)
+    5. Price > 50 SMA
+    6. Price at least 30% above 52-week low
+    7. Price within 25% of 52-week high (the closer the better)
+    8. RS Rating 70+ (IBD-style, we use RS slope as proxy)
+
+    Args:
+        current_price: Current stock price
+        phase_info: Phase classification dict (must include sma_50, sma_150, sma_200, etc.)
+        sma_200_series: Full 200 SMA series for slope calculation
+
+    Returns:
+        Dict with:
+        - passes_template: bool
+        - criteria_passed: int (0-8)
+        - criteria_details: Dict of each criterion
+        - template_score: int (0-100)
+    """
+    sma_50 = phase_info.get('sma_50', 0)
+    sma_150 = phase_info.get('sma_150', 0)
+    sma_200 = phase_info.get('sma_200', 0)
+    week_52_high = phase_info.get('week_52_high', 0)
+    week_52_low = phase_info.get('week_52_low', 0)
+
+    criteria = {}
+    passed_count = 0
+
+    # Criterion 1: Price > 150 SMA AND 200 SMA
+    c1 = current_price > sma_150 and current_price > sma_200
+    criteria['price_above_150_200'] = c1
+    if c1:
+        passed_count += 1
+
+    # Criterion 2: 150 SMA > 200 SMA
+    c2 = sma_150 > sma_200
+    criteria['sma_150_above_200'] = c2
+    if c2:
+        passed_count += 1
+
+    # Criterion 3: 200 SMA trending up for at least 1 month
+    # Calculate 200 SMA slope over 20 days (1 month)
+    if len(sma_200_series) >= 20:
+        sma_200_1mo_ago = sma_200_series.iloc[-20]
+        sma_200_now = sma_200_series.iloc[-1]
+        sma_200_rising = sma_200_now > sma_200_1mo_ago
+    else:
+        sma_200_rising = phase_info.get('slope_200', 0) > 0
+
+    c3 = sma_200_rising
+    criteria['sma_200_rising'] = c3
+    if c3:
+        passed_count += 1
+
+    # Criterion 4: 50 SMA > 150 SMA (strongest configuration)
+    c4 = sma_50 > sma_150
+    criteria['sma_50_above_150'] = c4
+    if c4:
+        passed_count += 1
+
+    # Criterion 5: Price > 50 SMA
+    c5 = current_price > sma_50
+    criteria['price_above_50'] = c5
+    if c5:
+        passed_count += 1
+
+    # Criterion 6: Price at least 30% above 52-week low
+    if week_52_low > 0:
+        distance_from_52w_low = ((current_price - week_52_low) / week_52_low) * 100
+        c6 = distance_from_52w_low >= 30
+        criteria['price_30pct_above_52w_low'] = c6
+        criteria['distance_from_52w_low_pct'] = round(distance_from_52w_low, 1)
+    else:
+        c6 = False
+        criteria['price_30pct_above_52w_low'] = c6
+        criteria['distance_from_52w_low_pct'] = 0
+
+    if c6:
+        passed_count += 1
+
+    # Criterion 7: Price within 25% of 52-week high
+    if week_52_high > 0:
+        distance_from_52w_high = ((week_52_high - current_price) / week_52_high) * 100
+        c7 = distance_from_52w_high <= 25
+        criteria['price_near_52w_high'] = c7
+        criteria['distance_from_52w_high_pct'] = round(distance_from_52w_high, 1)
+    else:
+        c7 = False
+        criteria['price_near_52w_high'] = c7
+        criteria['distance_from_52w_high_pct'] = 100
+
+    if c7:
+        passed_count += 1
+
+    # Criterion 8: Phase must be 2 (our proxy for confirmed uptrend)
+    c8 = phase_info.get('phase') == 2
+    criteria['confirmed_stage_2'] = c8
+    if c8:
+        passed_count += 1
+
+    # Template score (0-100)
+    template_score = int((passed_count / 8) * 100)
+
+    # Passes template if 7 or 8 criteria met (Minervini uses strict standards)
+    passes_template = passed_count >= 7
+
+    return {
+        'passes_template': passes_template,
+        'criteria_passed': passed_count,
+        'criteria_total': 8,
+        'template_score': template_score,
+        'criteria_details': criteria
+    }
+
+
+def detect_vcp_pattern(price_data: pd.DataFrame, current_price: float,
+                        phase_info: Dict, min_contractions: int = 2,
+                        max_contractions: int = 6) -> Dict[str, any]:
+    """Detect Minervini's Volatility Contraction Pattern (VCP).
+
+    A VCP is characterized by:
+    1. A series of 2-6 progressively tighter consolidations (pullbacks)
+    2. Each pullback is smaller than the previous (volatility contraction)
+    3. Volume dries up during each pullback (accumulation)
+    4. Base forms over 3-65 weeks typically
+    5. Stock should be within 25% of 52-week high
+    6. Breakout occurs on expanding volume (50-100%+ above average)
+
+    Args:
+        price_data: DataFrame with OHLCV data
+        current_price: Current price
+        phase_info: Phase classification info
+        min_contractions: Minimum number of contractions (default 2)
+        max_contractions: Maximum number of contractions (default 6)
+
+    Returns:
+        Dict with VCP analysis:
+        - is_vcp: bool
+        - vcp_quality: 0-100 score
+        - contractions: List of contraction details
+        - base_length_weeks: int
+        - breakout_volume_ratio: float
+        - pattern_details: str
+    """
+    if len(price_data) < 60:  # Need at least 3 months of data
+        return {
+            'is_vcp': False,
+            'vcp_quality': 0,
+            'contractions': [],
+            'base_length_weeks': 0,
+            'breakout_volume_ratio': 0.0,
+            'pattern_details': 'Insufficient data'
+        }
+
+    close = price_data['Close']
+    high = price_data['High']
+    low = price_data['Low']
+    volume = price_data.get('Volume', pd.Series([]))
+
+    # 1. Find pullbacks/contractions in the base
+    # Look back up to 65 weeks (325 days) for base formation
+    lookback = min(len(price_data), 325)
+    base_data = price_data.tail(lookback)
+
+    # Find local peaks and troughs (swing highs and lows)
+    contractions = []
+    window = 10  # 10-day window for peak/trough detection
+
+    base_high_prices = base_data['High'].rolling(window=window, center=True).max()
+    base_low_prices = base_data['Low'].rolling(window=window, center=True).min()
+
+    # Identify peaks (swing highs) where high == rolling max
+    peaks = []
+    for i in range(window, len(base_data) - window):
+        if base_data['High'].iloc[i] == base_high_prices.iloc[i]:
+            # Check if it's a true peak (higher than neighbors)
+            if (base_data['High'].iloc[i] > base_data['High'].iloc[i-5:i].max() and
+                base_data['High'].iloc[i] > base_data['High'].iloc[i+1:i+6].max()):
+                peaks.append({
+                    'index': i,
+                    'date': base_data.index[i],
+                    'price': base_data['High'].iloc[i]
+                })
+
+    # Identify troughs (swing lows) where low == rolling min
+    troughs = []
+    for i in range(window, len(base_data) - window):
+        if base_data['Low'].iloc[i] == base_low_prices.iloc[i]:
+            # Check if it's a true trough (lower than neighbors)
+            if (base_data['Low'].iloc[i] < base_data['Low'].iloc[i-5:i].min() and
+                base_data['Low'].iloc[i] < base_data['Low'].iloc[i+1:i+6].min()):
+                troughs.append({
+                    'index': i,
+                    'date': base_data.index[i],
+                    'price': base_data['Low'].iloc[i]
+                })
+
+    # 2. Measure contraction sizes (peak to trough drawdowns)
+    if len(peaks) >= 2 and len(troughs) >= 2:
+        # Match peaks with their subsequent troughs
+        for i, peak in enumerate(peaks[:-1]):  # Skip last peak if incomplete
+            # Find trough after this peak
+            matching_troughs = [t for t in troughs if t['index'] > peak['index']]
+            if matching_troughs:
+                trough = matching_troughs[0]
+
+                # Calculate drawdown percentage
+                drawdown_pct = ((peak['price'] - trough['price']) / peak['price']) * 100
+
+                # Calculate volume during contraction
+                contraction_start_idx = peak['index']
+                contraction_end_idx = trough['index']
+
+                if len(volume) > 0:
+                    avg_volume_before = volume.iloc[:contraction_start_idx].tail(20).mean()
+                    avg_volume_during = volume.iloc[contraction_start_idx:contraction_end_idx].mean()
+                    volume_ratio = avg_volume_during / avg_volume_before if avg_volume_before > 0 else 1.0
+                else:
+                    volume_ratio = 1.0
+
+                # Calculate duration safely
+                try:
+                    duration_days = (trough['date'] - peak['date']).days
+                except (AttributeError, TypeError):
+                    duration_days = 0
+
+                contractions.append({
+                    'number': len(contractions) + 1,
+                    'peak_date': peak['date'],
+                    'trough_date': trough['date'],
+                    'peak_price': peak['price'],
+                    'trough_price': trough['price'],
+                    'drawdown_pct': round(drawdown_pct, 2),
+                    'volume_ratio': round(volume_ratio, 2),
+                    'duration_days': duration_days
+                })
+
+    # 3. Check for volatility contraction (each pullback smaller than previous)
+    is_contracting = False
+    contraction_quality = 0
+
+    if len(contractions) >= min_contractions:
+        # Check if drawdowns are progressively smaller
+        contracting_count = 0
+        for i in range(1, len(contractions)):
+            if contractions[i]['drawdown_pct'] < contractions[i-1]['drawdown_pct']:
+                contracting_count += 1
+
+        # Quality: percentage of contractions that are smaller than previous
+        if len(contractions) > 1:
+            contraction_quality = (contracting_count / (len(contractions) - 1)) * 100
+            is_contracting = contraction_quality >= 50  # At least 50% should be contracting
+
+    # 4. Check volume behavior (should decrease during pullbacks)
+    volume_quality = 0
+    if len(contractions) >= 2:
+        drying_volume_count = sum(1 for c in contractions if c['volume_ratio'] < 1.0)
+        volume_quality = (drying_volume_count / len(contractions)) * 100
+
+    # 5. Calculate base length in weeks
+    if len(contractions) > 0:
+        base_start = contractions[0]['peak_date']
+        base_end = base_data.index[-1]
+        try:
+            base_length_days = (base_end - base_start).days
+            base_length_weeks = base_length_days / 7
+        except (AttributeError, TypeError):
+            base_length_weeks = 0
+    else:
+        base_length_weeks = 0
+
+    # 6. Check breakout volume (current volume vs average)
+    if len(volume) > 20:
+        avg_volume_20d = volume.iloc[-21:-1].mean()
+        current_volume = volume.iloc[-1]
+        breakout_volume_ratio = current_volume / avg_volume_20d if avg_volume_20d > 0 else 1.0
+    else:
+        breakout_volume_ratio = 1.0
+
+    # 7. Check proximity to 52-week high
+    week_52_high = phase_info.get('week_52_high', current_price)
+    distance_from_52w_high = ((week_52_high - current_price) / week_52_high * 100) if week_52_high > 0 else 100
+    near_52w_high = distance_from_52w_high <= 25
+
+    # 8. Calculate overall VCP quality score (0-100)
+    vcp_quality = 0
+    quality_factors = []
+
+    # Factor 1: Number of contractions (20 pts)
+    if len(contractions) >= min_contractions and len(contractions) <= max_contractions:
+        contraction_score = min(20, (len(contractions) / max_contractions) * 20)
+        vcp_quality += contraction_score
+        quality_factors.append(f"{len(contractions)} contractions ({contraction_score:.0f} pts)")
+
+    # Factor 2: Volatility contraction quality (30 pts)
+    vcp_quality += (contraction_quality / 100) * 30
+    quality_factors.append(f"{contraction_quality:.0f}% tightening ({(contraction_quality / 100) * 30:.0f} pts)")
+
+    # Factor 3: Volume drying up (20 pts)
+    vcp_quality += (volume_quality / 100) * 20
+    quality_factors.append(f"{volume_quality:.0f}% volume drying ({(volume_quality / 100) * 20:.0f} pts)")
+
+    # Factor 4: Base length appropriate (10 pts)
+    if 3 <= base_length_weeks <= 65:
+        vcp_quality += 10
+        quality_factors.append(f"{base_length_weeks:.0f}w base (10 pts)")
+
+    # Factor 5: Near 52-week high (20 pts)
+    if near_52w_high:
+        high_proximity_score = max(0, 20 - (distance_from_52w_high / 25 * 20))
+        vcp_quality += high_proximity_score
+        quality_factors.append(f"{distance_from_52w_high:.1f}% from 52W high ({high_proximity_score:.0f} pts)")
+
+    # Determine if this is a valid VCP
+    is_vcp = (
+        len(contractions) >= min_contractions and
+        len(contractions) <= max_contractions and
+        is_contracting and
+        vcp_quality >= 50  # Minimum 50/100 quality score
+    )
+
+    # Build pattern description
+    if len(contractions) >= min_contractions:
+        contraction_sizes = [f"{c['drawdown_pct']:.1f}%" for c in contractions[-4:]]  # Show last 4
+        pattern_details = f"{len(contractions)} contractions: {' → '.join(contraction_sizes)}"
+    else:
+        pattern_details = f"Only {len(contractions)} contraction(s) detected (need {min_contractions}+)"
+
+    return {
+        'is_vcp': is_vcp,
+        'vcp_quality': round(vcp_quality, 1),
+        'contractions': contractions,
+        'contraction_count': len(contractions),
+        'contraction_quality': round(contraction_quality, 1),
+        'volume_quality': round(volume_quality, 1),
+        'base_length_weeks': round(base_length_weeks, 1),
+        'breakout_volume_ratio': round(breakout_volume_ratio, 2),
+        'near_52w_high': near_52w_high,
+        'distance_from_52w_high_pct': round(distance_from_52w_high, 1),
+        'pattern_details': pattern_details,
+        'quality_factors': quality_factors
+    }
+
+
+def detect_breakout(price_data: pd.DataFrame, current_price: float,
+                     phase_info: Dict, vcp_data: Optional[Dict] = None) -> Dict[str, any]:
+    """Detect if a breakout is occurring.
+
+    Enhanced to include VCP breakout validation with volume confirmation.
+
+    Args:
+        price_data: DataFrame with OHLCV data
+        current_price: Current price
+        phase_info: Phase classification info
+        vcp_data: Optional VCP analysis data
+
+    Returns:
+        Dict with breakout info
+    """
+    if phase_info['phase'] not in [1, 2]:
+        return {
+            'is_breakout': False,
+            'breakout_level': None,
+            'breakout_type': None,
+            'volume_confirmed': False
+        }
+
+    close = price_data['Close']
+    volume = price_data.get('Volume', pd.Series([]))
+
+    # Find resistance levels
+    base_high = find_base_high(close, 60)
+    pivot_high = find_pivot_high(close, 20)
+    sma_50 = phase_info.get('sma_50')
+
+    breakout_level = None
+    breakout_type = None
+    is_breakout = False
+
+    # Check volume confirmation (Minervini requires 50-100%+ above average)
+    volume_confirmed = False
+    if len(volume) > 20:
+        avg_volume_20d = volume.iloc[-21:-1].mean()
+        current_volume = volume.iloc[-1]
+        volume_ratio = current_volume / avg_volume_20d if avg_volume_20d > 0 else 1.0
+        volume_confirmed = volume_ratio >= 1.5  # 50%+ above average
+
+    # Check VCP breakout (highest priority)
+    if vcp_data and vcp_data.get('is_vcp'):
+        # VCP breakout: price breaking above the most recent peak
+        if len(vcp_data.get('contractions', [])) > 0:
+            last_peak = vcp_data['contractions'][-1]['peak_price']
+            if current_price > last_peak:
+                is_breakout = True
+                breakout_level = last_peak
+                breakout_type = f'VCP Breakout ({vcp_data["contraction_count"]} contractions)'
+
+    # Check breakout above base high
+    if not is_breakout and base_high and current_price > base_high:
+        is_breakout = True
+        breakout_level = base_high
+        breakout_type = 'Base Breakout'
+
+    # Check breakout above pivot
+    elif not is_breakout and pivot_high and current_price > pivot_high and pivot_high < base_high:
+        is_breakout = True
+        breakout_level = pivot_high
+        breakout_type = 'Pivot Breakout'
+
+    # Check breakout above 50 SMA
+    elif not is_breakout and sma_50 and current_price > sma_50:
+        # Only count if recently crossed
+        if close.iloc[-2] < sma_50 < current_price:
+            is_breakout = True
+            breakout_level = sma_50
+            breakout_type = '50 SMA Breakout'
+
+    return {
+        'is_breakout': is_breakout,
+        'breakout_level': round(breakout_level, 2) if breakout_level else None,
+        'breakout_type': breakout_type,
+        'volume_confirmed': volume_confirmed,
+        'volume_ratio': round(volume_ratio, 2) if len(volume) > 20 else 1.0
+    }

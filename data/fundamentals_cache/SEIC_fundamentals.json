@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "SEIC",
-    "fetch_date": "2026-01-30T14:04:57.108838",
+    "fetch_date": "2026-02-06T14:18:46.821183",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 537396000.0,
@@ -29,5 +29,5 @@
     "operating_margin": NaN,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T14:04:57.110068"
+  "fetched_at": "2026-02-06T14:18:46.822524"
 }

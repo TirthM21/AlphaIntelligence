@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "RTX",
-    "fetch_date": "2026-01-30T14:03:27.019176",
+    "fetch_date": "2026-02-06T14:17:17.526292",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 20089000000.0,
@@ -39,5 +39,5 @@
     "inventory_to_sales_ratio": NaN,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T14:03:27.021256"
+  "fetched_at": "2026-02-06T14:17:17.528250"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "MMS",
-    "fetch_date": "2026-01-30T13:51:17.820234",
+    "fetch_date": "2026-02-06T14:05:08.023736",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 1315870000.0,
       "2024-12-31 00:00:00": 1402675000.0,
@@ -25,5 +25,5 @@
     "operating_margin": 9.32,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:51:17.821352"
+  "fetched_at": "2026-02-06T14:05:08.025119"
 }

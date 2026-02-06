@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "HCC",
-    "fetch_date": "2026-01-30T13:40:48.566747",
+    "fetch_date": "2026-02-06T13:54:40.520005",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 327720000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.667,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:40:48.568250"
+  "fetched_at": "2026-02-06T13:54:40.522242"
 }

@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - main
-  # Run every weekday at 9:30 PM IST (4:00 PM UTC) - After US market close
+  # Run every day at 8:00 AM IST (2:30 AM UTC)
   schedule:
-    - cron: '0 16 * * 1-5'  # Monday-Friday at 4 PM UTC (9:30 PM IST)
+    - cron: '30 2 * * *'  # Daily at 2:30 AM UTC (8:00 AM IST)
   
   # Allow manual trigger
   workflow_dispatch:

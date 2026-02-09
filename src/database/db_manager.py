@@ -35,6 +35,38 @@ class Recommendation(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     spy_price_at_signal = Column(Float) # For benchmarking
 
+class PortfolioHolding(Base):
+    """Current positions in the hedge fund portfolio."""
+    __tablename__ = 'portfolio_holdings'
+    
+    ticker = Column(String(20), primary_key=True)
+    quantity = Column(Integer, nullable=False)
+    average_buy_price = Column(Float, nullable=False)
+    current_price = Column(Float)
+    sector = Column(String(100))
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class TradeRecord(Base):
+    """Historical ledger of all portfolio trades."""
+    __tablename__ = 'trade_history'
+    
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String(20), nullable=False)
+    action = Column(String(10), nullable=False) # 'BUY' or 'SELL'
+    price = Column(Float, nullable=False)
+    quantity = Column(Integer, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+class DailyPerformance(Base):
+    """Timeseries of total fund equity for performance analysis."""
+    __tablename__ = 'daily_performance'
+    
+    date = Column(DateTime, primary_key=True, default=datetime.utcnow)
+    total_equity = Column(Float, nullable=False) # Cash + Market Value
+    cash_balance = Column(Float, default=100000.0) # Default $100k start
+    benchmark_price = Column(Float) # SPY price
+    nav = Column(Float) # Net Asset Value per share or scale
+
 class DBManager:
     """Handles connection and operations for the Neon Postgres database."""
     

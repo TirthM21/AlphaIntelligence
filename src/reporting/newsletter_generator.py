@@ -36,6 +36,7 @@ class NewsletterGenerator:
                           market_status: Dict = None, 
                           top_buys: List[Dict] = None,
                           top_sells: List[Dict] = None,
+                          top_etfs: List[Dict] = None,
                           output_path: Optional[str] = None) -> str:
         """Generate the comprehensive professional daily newsletter."""
         if output_path is None:
@@ -225,6 +226,27 @@ class NewsletterGenerator:
             content.append("*Zero high-conviction buy signals identified.*")
             
         content.append("")
+        
+        # --- SECTION 5: THEMATIC ETF STRATEGY ---
+        if top_etfs:
+            content.append("## 🚀 Thematic Strategy (ETF Intelligence)")
+            content.append("| Rank | Ticker | Theme | Score | Tailwind | Analysis |")
+            content.append("|------|--------|-------|-------|----------|----------|")
+            for i, etf in enumerate(top_etfs[:5], 1): # Top 5 ETFs
+                ticker = etf.get('ticker', 'N/A')
+                theme = etf.get('theme_name', 'Thematic')
+                score = etf.get('total_score', 0)
+                tailwind = etf.get('tailwind_score', 0)
+                
+                # Dynamic analysis based on scores
+                analysis = "Strong Setup" if score > 75 else "Accumulate"
+                if tailwind >= 8.0:
+                    analysis = "High Tailwind (Structural Lead)"
+                
+                content.append(f"| {i} | **{ticker}** | {theme} | {score:.1f} | {tailwind:.1f}/10 | {analysis} |")
+            
+            content.append("\n> **Thematic View**: Focus remains on high-purity ETFs with persistent relative strength.")
+            content.append("")
 
         if top_sells:
             content.append(f"### 🔴 Risk Management Alerts")

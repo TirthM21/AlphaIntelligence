@@ -46,6 +46,9 @@ from src.database.db_manager import DBManager
 from src.data.fmp_fetcher import FMPFetcher
 from src.data.sec_fetcher import SECFetcher
 from src.ai.ai_agent import AIAgent
+from src.long_term.etf_universe import ETFUniverse
+from src.long_term.etf_engine import ETFEngine
+from src.data.fetcher import YahooFinanceFetcher
 
 
 logging.basicConfig(
@@ -289,7 +292,76 @@ def save_report(results, buy_signals, sell_signals, spy_analysis, breadth, outpu
     with open(latest_path, 'w', encoding='utf-8') as f:
         f.write(report_text)
 
-    logger.info(f"Report saved: {filepath}")
+    logger.info(f"Full report saved to {filepath}")
+
+
+def run_etf_scan():
+    """Run thematic ETF discovery and scoring."""
+    logger.info("=" * 60)
+    logger.info("THEMATIC ETF ANALYSIS")
+    logger.info("=" * 60)
+
+    try:
+        universe = ETFUniverse()
+        engine = ETFEngine(universe=universe)
+        fetcher = YahooFinanceFetcher()
+
+        etfs = universe.discover_thematic_etfs()
+        etfs = universe.filter_by_quality(etfs)
+
+        scored_etfs = []
+
+        # Fetch SPY returns for benchmark
+        logger.info("Fetching SPY benchmark for ETF scoring...")
+        spy_hist = fetcher.fetch_price_history('SPY', period='5y')
+        if spy_hist.empty:
+            logger.warning("SPY history unavailable for ETF scoring")
+            return []
+
+        current_spy = spy_hist['Close'].iloc[-1]
+        spy_1y = spy_hist['Close'].iloc[-252] if len(spy_hist) > 252 else spy_hist['Close'].iloc[0]
+        spy_3y = spy_hist['Close'].iloc[-756] if len(spy_hist) > 756 else spy_hist['Close'].iloc[0]
+        spy_5y = spy_hist['Close'].iloc[0]
+
+        spy_returns = {
+            'spy_return_1yr': (current_spy / spy_1y) - 1,
+            'spy_return_3yr': (current_spy / spy_3y) ** (1 / 3) - 1 if spy_3y > 0 else 0,
+            'spy_return_5yr': (current_spy / spy_5y) ** (1 / 5) - 1 if spy_5y > 0 else 0
+        }
+
+        logger.info(f"Scoring {len(etfs)} thematic ETFs...")
+        for etf in etfs:
+            try:
+                hist = fetcher.fetch_price_history(etf.ticker, period='5y')
+                if hist.empty:
+                    continue
+
+                current_price = hist['Close'].iloc[-1]
+                price_1y = hist['Close'].iloc[-252] if len(hist) > 252 else hist['Close'].iloc[0]
+                price_3y = hist['Close'].iloc[-756] if len(hist) > 756 else hist['Close'].iloc[0]
+                price_5y = hist['Close'].iloc[0]
+
+                price_data = {
+                    'return_1yr': (current_price / price_1y) - 1 if price_1y > 0 else 0,
+                    'return_3yr': (current_price / price_3y) ** (1 / 3) - 1 if price_3y > 0 else 0,
+                    'return_5yr': (current_price / price_5y) ** (1 / 5) - 1 if price_5y > 0 else 0,
+                    **spy_returns
+                }
+
+                score = engine.score_etf(etf.__dict__, price_data)
+                if score:
+                    scored_etfs.append(score)
+            except Exception as e:
+                logger.debug(f"Failed to score ETF {etf.ticker}: {e}")
+
+        # Rank by score
+        logger.info(f"✓ Ranked {len(scored_etfs)} ETFs")
+        return sorted([s.__dict__ for s in scored_etfs], key=lambda x: x['total_score'], reverse=True)
+
+    except Exception as e:
+        logger.error(f"ETF Scan failed: {e}")
+        return []
+
     print(report_text)
 
     return filepath
@@ -556,10 +628,18 @@ def main():
                 'breadth': breadth
             }
             
+            # Optional: Run ETF Scan
+            top_etfs = []
+            try:
+                top_etfs = run_etf_scan()
+            except Exception as etf_err:
+                logger.error(f"ETF Scan integration failed: {etf_err}")
+
             newsletter_path = newsletter_gen.generate_newsletter(
                 market_status=market_status,
                 top_buys=buy_signals,
-                top_sells=sell_signals
+                top_sells=sell_signals,
+                top_etfs=top_etfs
             )
             logger.info(f"Newsletter ready: {newsletter_path}")
             

@@ -123,8 +123,9 @@ jobs:
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
-          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER || 'smtp.gmail.com' }}
-          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT || '587' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
           LOG_LEVEL: DEBUG
           FORCE_FULL_REFRESH: ${{ github.event.inputs.force_full_refresh || 'false' }}
           CACHED_STOCKS: ${{ steps.cache-check.outputs.cached_stocks }}

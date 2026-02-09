@@ -191,3 +191,110 @@ class DBManager:
             ]
         finally:
             session.close()
+
+    def update_portfolio_from_signals(self, buy_signals: List[Dict], max_positions: int = 20):
+        """Automatically update portfolio based on elite buy signals."""
+        if not self.db_url or not buy_signals: return
+        
+        session = self.Session()
+        try:
+            # 1. Get current holdings
+            current_holdings = session.query(PortfolioHolding).all()
+            total_slots = max_positions - len(current_holdings)
+            
+            if total_slots <= 0:
+                logger.info("Portfolio at max capacity. No new positions added.")
+                return
+
+            # 2. Add top buy signals until full
+            for signal in buy_signals[:total_slots]:
+                ticker = signal['ticker']
+                # Check if already held
+                existing = session.query(PortfolioHolding).filter_by(ticker=ticker).first()
+                if not existing:
+                    # New position - logical quantity (simulated)
+                    qty = 100 # Default simulated qty
+                    price = signal['current_price']
+                    
+                    new_pos = PortfolioHolding(
+                        ticker=ticker,
+                        quantity=qty,
+                        average_buy_price=price,
+                        current_price=price,
+                        sector=signal.get('sector', 'Unknown')
+                    )
+                    session.add(new_pos)
+                    
+                    # Record in ledger
+                    trade = TradeRecord(
+                        ticker=ticker,
+                        action='BUY',
+                        price=price,
+                        quantity=qty
+                    )
+                    session.add(trade)
+                    logger.info(f"Hedge Fund: Added NEW position {ticker} at ${price}")
+            
+            session.commit()
+        except Exception as e:
+            logger.error(f"Failed to update portfolio: {e}")
+            session.rollback()
+        finally:
+            session.close()
+
+    def update_daily_performance(self, spy_price: float):
+        """Record daily fund value and benchmark price."""
+        if not self.db_url: return
+        
+        session = self.Session()
+        try:
+            holdings = session.query(PortfolioHolding).all()
+            market_value = sum((h.current_price or h.average_buy_price) * h.quantity for h in holdings)
+            
+            # Simple cash balance logic - start 100k, subtract buys, add sells (simulation)
+            # In a real app we'd track cash in DB, here we'll assume a balance
+            cash = 100000.0 - sum(h.average_buy_price * h.quantity for h in holdings)
+            total_equity = market_value + cash
+            
+            perf = DailyPerformance(
+                date=datetime.utcnow(),
+                total_equity=total_equity,
+                cash_balance=cash,
+                benchmark_price=spy_price,
+                nav=total_equity / 1000.0 # Simulated NAV
+            )
+            session.add(perf)
+            session.commit()
+            logger.info(f"Hedge Fund: Recorded daily performance. Equity: ${total_equity:,.2f}")
+        except Exception as e:
+            logger.error(f"Failed to update performance: {e}")
+            session.rollback()
+        finally:
+            session.close()
+
+    def get_full_portfolio_data(self) -> Dict:
+        """Fetch all data needed for Dashboards."""
+        if not self.db_url: return {}
+        
+        session = self.Session()
+        try:
+            holdings = session.query(PortfolioHolding).all()
+            history = session.query(DailyPerformance).order_by(DailyPerformance.date).all()
+            trades = session.query(TradeRecord).order_by(TradeRecord.timestamp.desc()).limit(10).all()
+            
+            return {
+                'holdings': [
+                    {'ticker': h.ticker, 'qty': h.quantity, 'avg_price': h.average_buy_price, 
+                     'current_price': h.current_price, 'sector': h.sector} for h in holdings
+                ],
+                'equity_curve': [
+                    {'date': p.date, 'equity': p.total_equity, 'cash': p.cash_balance, 
+                     'spy': p.benchmark_price} for p in history
+                ],
+                'recent_trades': [
+                    {'ticker': t.ticker, 'action': t.action, 'price': t.price, 
+                     'qty': t.quantity, 'date': t.timestamp} for t in trades
+                ]
+            }
+        finally:
+            session.close()

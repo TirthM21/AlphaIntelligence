@@ -316,82 +316,82 @@ class EmailNotifier:
         <head>
             <meta charset="UTF-8">
             <style>
-                body {
+                body {{
                     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
                     line-height: 1.6;
                     color: #2c3e50;
                     margin: 0;
                     padding: 0;
                     background-color: #f8f9fa;
-                }
-                .wrapper {
+                }}
+                .wrapper {{
                     padding: 40px 20px;
-                }
-                .container {
+                }}
+                .container {{
                     background: white;
                     padding: 40px;
                     border-radius: 12px;
                     box-shadow: 0 4px 15px rgba(0,0,0,0.05);
                     max-width: 800px;
                     margin: 0 auto;
-                }
-                h1 {
+                }}
+                h1 {{
                     color: #1a2a3a;
                     border-bottom: 4px solid #3498db;
                     padding-bottom: 15px;
                     font-size: 28px;
                     margin-top: 0;
-                }
-                h2 {
+                }}
+                h2 {{
                     color: #2980b9;
                     margin-top: 40px;
                     border-bottom: 1px solid #edf2f7;
                     padding-bottom: 10px;
                     font-size: 22px;
-                }
-                h3 {
+                }}
+                h3 {{
                     color: #34495e;
                     border-left: 4px solid #3498db;
                     padding-left: 15px;
                     margin-top: 25px;
-                }
-                table {
+                }}
+                table {{
                     width: 100%;
                     border-collapse: collapse;
                     margin: 25px 0;
                     background: #ffffff;
-                }
-                th, td {
+                }}
+                th, td {{
                     padding: 12px 15px;
                     text-align: left;
                     border-bottom: 1px solid #edf2f7;
-                }
-                th {
+                }}
+                th {{
                     background-color: #f8f9fa;
                     color: #7f8c8d;
                     text-transform: uppercase;
                     font-size: 12px;
                     font-weight: 600;
-                }
-                ul {
+                }}
+                ul {{
                     background: #fdfdfd;
                     padding: 20px 20px 20px 40px;
                     border-radius: 8px;
                     border-left: 4px solid #ecf0f1;
                     list-style-type: square;
-                }
-                li {
+                }}
+                li {{
                     margin-bottom: 10px;
-                }
-                a {
+                }}
+                a {{
                     color: #3498db;
                     text-decoration: none;
                     font-weight: 500;
-                }
-                a:hover {
+                }}
+                a:hover {{
                     text-decoration: underline;
-                }
-                blockquote {
+                }}
+                blockquote {{
                     background: #f1f8ff;
                     border-radius: 8px;
                     padding: 15px 25px;
@@ -399,16 +399,16 @@ class EmailNotifier:
                     border-left: 5px solid #3498db;
                     font-style: italic;
                     color: #2c3e50;
-                }
-                .footer {
+                }}
+                .footer {{
                     margin-top: 50px;
                     text-align: center;
                     color: #95a5a6;
                     font-size: 12px;
                     border-top: 1px solid #edf2f7;
                     padding-top: 30px;
-                }
-                strong { color: #1a2a3a; }
+                }}
+                strong {{ color: #1a2a3a; }}
             </style>
         </head>
         <body>

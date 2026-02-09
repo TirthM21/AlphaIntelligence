@@ -629,6 +629,12 @@ def main():
             all_signals = buy_signals + sell_signals
             db.record_recommendations(all_signals, spy_price=processor.spy_price)
             
+            # --- HEDGE FUND PORTFOLIO ENHANCEMENT ---
+            logger.info("Updating Hedge Fund Portfolio holdings and tracking performance...")
+            db.update_portfolio_from_signals(buy_signals)
+            db.update_daily_performance(spy_price=processor.spy_price)
+            # ----------------------------------------
+            
             # Generate advanced reports (Allocation, Rebalance, Alpha Tracker)
             pm = PortfolioManager()
             pm.generate_reports(buy_signals, sell_signals)

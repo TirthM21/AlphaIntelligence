@@ -76,6 +76,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: 📧 Email Diagnostic
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: |
+          echo "Checking email configuration..."
+          python -c "
+          import os
+          from src.notifications.email_notifier import EmailNotifier
+          notifier = EmailNotifier()
+          print(f'Email Enabled: {notifier.enabled}')
+          print(f'Sender: {notifier.sender_email}')
+          print(f'Recipient: {notifier.recipient_email}')
+          if not notifier.enabled:
+              exit(1)
+          "
+
       - name: Run optimized stock screening
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
@@ -85,6 +103,7 @@ jobs:
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER || 'smtp.gmail.com' }}
           EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT || '587' }}
+          LOG_LEVEL: DEBUG
           FORCE_FULL_REFRESH: ${{ github.event.inputs.force_full_refresh || 'false' }}
           CACHED_STOCKS: ${{ steps.cache-check.outputs.cached_stocks }}
         run: |
@@ -153,12 +172,32 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Push changes
+      - name: Commit and Push fundamental cache
         if: steps.commit.outputs.has_changes == 'true'
-        uses: ad-m/github-push-action@v0.8.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref }}
+        run: |
+          # Use a retry loop for pushing to handle temporary 502/network errors
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          SUCCESS=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Push attempt $((RETRY_COUNT + 1))..."
+            if git push origin ${{ github.ref_name }}; then
+              echo "✅ Successfully pushed changes"
+              SUCCESS=true
+              break
+            else
+              echo "❌ Push failed. Retrying in 10 seconds..."
+              sleep 10
+              git pull --rebase origin ${{ github.ref_name }}
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            fi
+          done
+          
+          if [ "$SUCCESS" = false ]; then
+            echo "❌ Failed to push changes after $MAX_RETRIES attempts"
+            exit 1
+          fi
 
       - name: Upload screening results
         if: always()

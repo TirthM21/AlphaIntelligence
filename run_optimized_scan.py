@@ -51,8 +51,9 @@ from src.long_term.etf_engine import ETFEngine
 from src.data.fetcher import YahooFinanceFetcher
 
 
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)

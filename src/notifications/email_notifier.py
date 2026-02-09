@@ -22,21 +22,30 @@ class EmailNotifier:
     """Send professional emails via Gmail SMTP (free)."""
     
     def __init__(self):
-        """Initialize email notifier with Gmail SMTP settings."""
-        self.smtp_server = "smtp.gmail.com"
-        self.smtp_port = 587
+        """Initialize email notifier with SMTP settings."""
+        self.smtp_server = os.getenv('EMAIL_SMTP_SERVER', "smtp.gmail.com")
+        try:
+            self.smtp_port = int(os.getenv('EMAIL_SMTP_PORT', 587))
+        except (ValueError, TypeError):
+            self.smtp_port = 587
         
         # Get credentials from environment
         self.sender_email = os.getenv('EMAIL_SENDER')
-        self.sender_password = os.getenv('EMAIL_PASSWORD')  # Gmail App Password
+        self.sender_password = os.getenv('EMAIL_PASSWORD')  # Gmail App Password or SMTP password
         self.recipient_email = os.getenv('EMAIL_RECIPIENT', self.sender_email)
         
         self.enabled = bool(self.sender_email and self.sender_password)
         
         if not self.enabled:
-            logger.warning("Email notifications disabled - EMAIL_SENDER or EMAIL_PASSWORD not set")
+            missing = []
+            if not self.sender_email: missing.append("EMAIL_SENDER")
+            if not self.sender_password: missing.append("EMAIL_PASSWORD")
+            logger.warning(f"Email notifications disabled - Missing: {', '.join(missing)}")
         else:
-            logger.info(f"Email notifications enabled - will send to {self.recipient_email}")
+            logger.info(f"Email notifications enabled - {self.smtp_server}:{self.smtp_port} - Sending to {self.recipient_email}")
+            # Log masked password length for debugging
+            pass_len = len(self.sender_password) if self.sender_password else 0
+            logger.debug(f"Email config: Sender={self.sender_email}, Password length={pass_len}")
     
     def send_newsletter(
         self,
@@ -93,8 +102,10 @@ class EmailNotifier:
                     msg.attach(attachment)
             
             # Send email
+            logger.debug(f"Connecting to SMTP server {self.smtp_server}:{self.smtp_port}...")
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
+                logger.debug(f"SMTP Login as {self.sender_email}...")
                 server.login(self.sender_email, self.sender_password)
                 server.send_message(msg)
             

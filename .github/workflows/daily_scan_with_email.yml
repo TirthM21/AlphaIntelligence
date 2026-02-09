@@ -104,7 +104,30 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "📈 Daily scan results - $(date +'%Y-%m-%d %H:%M')"
-            git push
+            
+            # Use a retry loop for pushing
+            MAX_RETRIES=5
+            RETRY_COUNT=0
+            SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              echo "Push attempt $((RETRY_COUNT + 1))..."
+              if git push origin ${{ github.ref_name }}; then
+                echo "✅ Successfully pushed changes"
+                SUCCESS=true
+                break
+              else
+                echo "❌ Push failed. Retrying in 10 seconds..."
+                sleep 10
+                git pull --rebase origin ${{ github.ref_name }}
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+              fi
+            done
+            
+            if [ "$SUCCESS" = false ]; then
+              echo "❌ Failed to push changes after $MAX_RETRIES attempts"
+              exit 1
+            fi
           fi
       
       - name: 🚨 Notify on Failure

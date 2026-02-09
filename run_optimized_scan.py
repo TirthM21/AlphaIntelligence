@@ -665,18 +665,24 @@ def main():
             if args.send_email:
                 try:
                     logger.info("Preparing for premium email delivery...")
-                    db = DBManager()
-                    subscribers = db.get_active_subscribers()
                     
-                    # Also include the default recipient from env
-                    default_recipient = os.getenv('EMAIL_RECIPIENT')
-                    if default_recipient and default_recipient not in subscribers:
-                        subscribers.append(default_recipient)
+                    # Get subscribers from DB
+                    db_subscribers = []
+                    try:
+                        db = DBManager()
+                        db_subscribers = db.get_active_subscribers()
+                    except Exception as db_err:
+                        logger.warning(f"Could not fetch subscribers from DB: {db_err}")
+                    
+                    # Always include the default recipient from env
+                    primary_recipient = os.getenv('EMAIL_RECIPIENT') or os.getenv('EMAIL_SENDER')
+                    
+                    subscribers = list(set(db_subscribers + ([primary_recipient] if primary_recipient else [])))
                     
                     if not subscribers:
-                        logger.warning("No active subscribers found in database to send newsletter to.")
+                        logger.warning("No recipients found (DB empty and EMAIL_RECIPIENT not set).")
                     else:
-                        logger.info(f"Sending newsletter to {len(subscribers)} subscribers...")
+                        logger.info(f"Sending newsletter to {len(subscribers)} recipients...")
                         notifier = EmailNotifier()
                         
                         # Use latest_optimized_scan.txt as attachment if it exists

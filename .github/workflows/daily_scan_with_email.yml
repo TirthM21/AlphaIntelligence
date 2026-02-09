@@ -44,6 +44,24 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: 📧 Email Diagnostic
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: |
+          echo "Checking email configuration..."
+          python -c "
+          import os
+          from src.notifications.email_notifier import EmailNotifier
+          notifier = EmailNotifier()
+          print(f'Email Enabled: {notifier.enabled}')
+          print(f'Sender: {notifier.sender_email}')
+          print(f'Recipient: {notifier.recipient_email}')
+          if not notifier.enabled:
+              exit(1)
+          "
       
       - name: 🔍 Run Market Scan
         env:
@@ -52,6 +70,7 @@ jobs:
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          LOG_LEVEL: DEBUG
         run: |
           echo "🚀 Starting daily market scan..."
           

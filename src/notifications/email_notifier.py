@@ -32,6 +32,9 @@ class EmailNotifier:
         # Get credentials from environment
         self.sender_email = os.getenv('EMAIL_SENDER')
         self.sender_password = os.getenv('EMAIL_PASSWORD')  # Gmail App Password or SMTP password
+        if self.sender_password:
+            self.sender_password = self.sender_password.replace(" ", "")
+            
         self.recipient_email = os.getenv('EMAIL_RECIPIENT', self.sender_email)
         
         self.enabled = bool(self.sender_email and self.sender_password)

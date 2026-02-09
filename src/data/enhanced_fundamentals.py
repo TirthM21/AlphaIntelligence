@@ -51,37 +51,29 @@ class EnhancedFundamentalsFetcher:
     def fetch_quarterly_data(
         self,
         ticker: str,
-        use_fmp: bool = False
+        use_fmp: bool = True
     ) -> Dict[str, any]:
-        """Fetch quarterly financial data.
-
-        Args:
-            ticker: Stock ticker
-            use_fmp: If True and FMP available, use FMP for detailed data
-
-        Returns:
-            Dict with quarterly financial metrics
-        """
-        # If FMP requested and available, use it
-        if use_fmp and self.fmp_available:
+        """Fetch quarterly financial data from FMP (primary) or yfinance (fallback)."""
+        # 1. Try FMP First (if available and not at limit)
+        if self.fmp_available and self.fmp_fetcher:
             if self.fmp_call_count < self.fmp_daily_limit:
                 try:
-                    # Fetch basic + advanced (DCF/Insider)
+                    logger.info(f"FMP [{ticker}]: Attempting fetch...")
                     data = self.fmp_fetcher.fetch_comprehensive_fundamentals(ticker, include_advanced=True)
-                    self.fmp_call_count += 6  # 4 base + 1 DCF + 1 Insider
-
+                    self.fmp_call_count += 6
+                    
                     if data and data.get('income_statement'):
-                        logger.info(f"FUNDAMENTALS [{ticker}]: Source = FMP (Enhanced)")
+                        logger.info(f"✅ FMP [{ticker}]: Data received (Net Margin: {data['income_statement'][0].get('netIncomeRatio', 0)*100:.1f}%)")
                         return self._convert_fmp_to_standard(data)
                     else:
-                        logger.warning(f"FMP returned no data for {ticker}, falling back to yfinance")
+                        logger.warning(f"⚠️ FMP [{ticker}]: Empty response, falling back to yfinance")
                 except Exception as e:
-                    logger.warning(f"FMP fetch failed for {ticker}: {e}. Using yfinance.")
+                    logger.warning(f"❌ FMP [{ticker}]: Error {e}, falling back to yfinance")
             else:
-                logger.warning(f"FMP daily limit reached ({self.fmp_daily_limit}). Using yfinance.")
+                logger.warning(f"⏹️ FMP limit reached ({self.fmp_call_count}/{self.fmp_daily_limit})")
 
-        # Fall back to yfinance
-        logger.info(f"FUNDAMENTALS [{ticker}]: Source = yfinance (Standard)")
+        # 2. Fall back to yfinance
+        logger.info(f"🔄 YFINANCE [{ticker}]: Fetching standard fundamentals...")
         return fetch_quarterly_financials(ticker)
 
     def download_sec_filing(self, ticker: str, filing_type: str = '10-Q') -> str:

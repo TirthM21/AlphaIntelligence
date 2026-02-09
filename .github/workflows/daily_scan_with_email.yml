@@ -62,7 +62,29 @@ jobs:
           if not notifier.enabled:
               exit(1)
           "
-      
+      - name: 💓 Heartbeat Email
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          LOG_LEVEL: DEBUG
+        run: |
+          echo "Sending heartbeat email..."
+          python -c "
+          from src.notifications.email_notifier import EmailNotifier
+          import os
+          notifier = EmailNotifier()
+          if notifier.enabled:
+              # Create a tiny temp file for the heart beat
+              with open('heartbeat.md', 'w') as f:
+                  f.write('# 💓 Alpha Intelligence Heartbeat\n\nEmail system is ACTIVE and connected via GitHub Actions.')
+              success = notifier.send_newsletter('heartbeat.md', subject='💓 System Heartbeat: GitHub Actions Active')
+              if not success:
+                  print('Heartbeat FAILED')
+                  exit(1)
+              print('Heartbeat SUCCESS')
+          "
+
       - name: 🔍 Run Market Scan
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}

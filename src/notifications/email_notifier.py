@@ -86,7 +86,7 @@ class EmailNotifier:
             # Create email
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = self.sender_email
+            msg['From'] = f"Alpha Intelligence <{self.sender_email}>"
             msg['To'] = self.recipient_email
             
             # Add HTML body
@@ -95,28 +95,35 @@ class EmailNotifier:
             
             # Attach full scan report if provided
             if scan_report_path and Path(scan_report_path).exists():
-                with open(scan_report_path, 'r', encoding='utf-8') as f:
-                    attachment = MIMEText(f.read(), 'plain', 'utf-8')
-                    attachment.add_header(
-                        'Content-Disposition',
-                        'attachment',
-                        filename='full_scan_report.txt'
-                    )
-                    msg.attach(attachment)
+                logger.debug(f"Attaching scan report: {scan_report_path}")
+                try:
+                    with open(scan_report_path, 'r', encoding='utf-8') as f:
+                        attachment = MIMEText(f.read(), 'plain', 'utf-8')
+                        attachment.add_header(
+                            'Content-Disposition',
+                            'attachment',
+                            filename='full_scan_report.txt'
+                        )
+                        msg.attach(attachment)
+                except Exception as attach_err:
+                    logger.warning(f"Failed to attach report: {attach_err}")
             
             # Send email
-            logger.debug(f"Connecting to SMTP server {self.smtp_server}:{self.smtp_port}...")
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+            logger.info(f"Connecting to SMTP server {self.smtp_server}:{self.smtp_port} for {self.recipient_email}...")
+            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30) as server:
+                server.set_debuglevel(1) if os.getenv('LOG_LEVEL') == 'DEBUG' else server.set_debuglevel(0)
                 server.starttls()
-                logger.debug(f"SMTP Login as {self.sender_email}...")
+                logger.info(f"Attempting SMTP login for {self.sender_email}...")
                 server.login(self.sender_email, self.sender_password)
                 server.send_message(msg)
             
-            logger.info(f"✅ Newsletter sent to {self.recipient_email}")
+            logger.info(f"✅ SUCCESS: Newsletter sent to {self.recipient_email}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Failed to send newsletter: {e}")
+            logger.error(f"❌ SMTP FAILURE for {self.recipient_email}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return False
     
     def send_error_alert(self, error_message: str, error_details: Optional[str] = None) -> bool:

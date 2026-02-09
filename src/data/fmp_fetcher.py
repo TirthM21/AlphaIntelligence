@@ -49,6 +49,7 @@ class FMPFetcher:
                 "Get free key at: https://site.financialmodelingprep.com/developer/docs"
             )
 
+        # FMP standard base endpoint for stable API calls
         self.base_url = "https://financialmodelingprep.com/stable"
         self.cache_dir = Path(cache_dir) / "fmp"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -197,6 +198,10 @@ class FMPFetcher:
                     logger.warning("This endpoint requires a higher FMP plan tier or is no longer supported for this key. System will fallback to yfinance.")
                 return None
 
+            if response.status_code == 429:
+                logger.warning(f"FMP API 429 Error: Rate limit exceeded. (Endpoint: {endpoint}). Falling back to yfinance.")
+                return None
+
             response.raise_for_status()
 
             # Track bandwidth usage
@@ -233,14 +238,8 @@ class FMPFetcher:
 
     def fetch_income_statement(self, ticker: str, quarterly: bool = True, limit: int = 8) -> List[Dict]:
         """Fetch income statement data.
-
-        Args:
-            ticker: Stock ticker
-            quarterly: True for quarterly, False for annual
-            limit: Number of periods to fetch
-
-        Returns:
-            List of income statement periods
+        
+        Using /stable/income-statement?symbol=TICKER
         """
         # Fetch from API
         period = "quarter" if quarterly else "annual"
@@ -313,6 +312,22 @@ class FMPFetcher:
         
         if data and isinstance(data, list) and len(data) > 0:
             return data[0].get('dcf')
+        elif data and isinstance(data, dict):
+            return data.get('dcf')
+        return None
+
+    def fetch_quote(self, ticker: str) -> Optional[Dict]:
+        """Fetch real-time quote for a specific symbol."""
+        data = self._fetch("quote", {'symbol': ticker})
+        if data and isinstance(data, list) and len(data) > 0:
+            return data[0]
+        return None
+
+    def fetch_profile(self, ticker: str) -> Optional[Dict]:
+        """Fetch company profile."""
+        data = self._fetch("profile", {'symbol': ticker})
+        if data and isinstance(data, list) and len(data) > 0:
+            return data[0]
         return None
 
     def fetch_insider_trading(self, ticker: str, page: int = 0) -> List[Dict]:
@@ -347,7 +362,7 @@ class FMPFetcher:
             return []
 
     def fetch_economic_data(self) -> Dict[str, any]:
-        """Fetch key economic indicators (CPI, GDP, Unemployment, Interest Rate)."""
+        """Fetch key economic indicators using stable endpoints."""
         indicators = {
             'CPI': 'CPI',
             'GDP': 'GDP',
@@ -360,18 +375,16 @@ class FMPFetcher:
             cache_key = f"econ_{name}"
             cache_path = self.cache_dir / f"{cache_key}.pkl"
             
-            # Use 24h cache for economic data (doesn't change intraday)
             if self._is_cache_valid(cache_path, hours=24):
                  with open(cache_path, 'rb') as f:
                     results[name] = pickle.load(f)
                     continue
 
-            # Fetch
+            # Fetch via /stable/economic-indicators?name=...
             endpoint = "economic-indicators"
             params = {'name': endpoint_key}
             data = self._fetch(endpoint, params)
             if data:
-                # Store just the latest value and the previous one for trend
                 latest = data[0] if len(data) > 0 else {}
                 prev = data[1] if len(data) > 1 else {}
                 
@@ -379,7 +392,7 @@ class FMPFetcher:
                     'current': latest.get('value'),
                     'date': latest.get('date'),
                     'previous': prev.get('value'),
-                    'trend': 'Up' if (latest.get('value',0) > prev.get('value',0)) else 'Down'
+                    'trend': 'Up' if (latest.get('value',0) > (prev.get('value',0) if prev.get('value') else 0)) else 'Down'
                 }
                 results[name] = info
                 
@@ -408,7 +421,7 @@ class FMPFetcher:
         return data or []
 
     def fetch_stock_news(self, tickers: List[str], limit: int = 5) -> List[Dict]:
-        """Fetch news for specific stock tickers.
+        """Fetch news for specific stock tickers with caching.
         
         Args:
             tickers: List of stock symbols
@@ -420,12 +433,30 @@ class FMPFetcher:
         if not tickers:
             return []
             
-        # No caching for specific ticker news to keep it fresh
+        # Create a stable cache key based on sorted tickers and limit
+        import hashlib
+        import json
+        tickers_str = ",".join(sorted(tickers))
+        cache_key = hashlib.md5(f"{tickers_str}_{limit}".encode()).hexdigest()[:10]
+        cache_path = self.cache_dir / f"stock_news_{cache_key}.pkl"
+        
+        if self._is_cache_valid(cache_path, hours=1):
+             with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+            
         params = {
-            "tickers": ",".join(tickers),
+            "symbol": ",".join(tickers), # FMP stable uses 'symbol' for multiple too in some cases, or 'tickers'
             "limit": limit
         }
-        return self._fetch("stock_news", params) or []
+        # Try both 'symbol' and 'tickers' for broad compatibility if needed, 
+        # but stable usually prefers symbol
+        data = self._fetch("stock_news", params)
+        
+        if data:
+             with open(cache_path, 'wb') as f:
+                pickle.dump(data, f)
+                
+        return data or []
 
     def fetch_comprehensive_fundamentals(self, ticker: str, include_advanced: bool = True) -> Dict:
         """Fetch comprehensive quarterly fundamentals + optional advanced metrics.

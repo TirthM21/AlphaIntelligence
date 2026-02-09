@@ -308,6 +308,7 @@ def main():
     parser.add_argument('--test-mode', action='store_true', help='Test with 100 stocks')
     parser.add_argument('--min-price', type=float, default=5.0, help='Min price')
     parser.add_argument('--min-volume', type=int, default=100000, help='Min volume')
+    parser.add_argument('--max-drawdown', type=float, default=0.70, help='Max 5y drawdown limit (0.7 = 70%)')
     parser.add_argument('--use-fmp', action='store_true', help='Use FMP for enhanced fundamentals on buy signals')
     parser.add_argument('--git-storage', action='store_true', help='Use Git-based storage for fundamentals (recommended)')
     parser.add_argument('--download-sec', action='store_true', help='Download SEC 10-Qs for top buy signals (requires sec-edgar-toolkit)')
@@ -398,7 +399,8 @@ def main():
             max_workers=args.workers,
             rate_limit_delay=args.delay,
             use_git_storage=args.git_storage,
-            use_fmp=args.use_fmp
+            use_fmp=args.use_fmp,
+            max_drawdown=args.max_drawdown
         )
 
         if args.git_storage:

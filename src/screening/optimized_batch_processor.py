@@ -43,7 +43,8 @@ class OptimizedBatchProcessor:
         rate_limit_delay: float = 0.5,  # 0.5 sec = 2 TPS per worker
         batch_size: int = 100,
         use_git_storage: bool = False,
-        use_fmp: bool = False
+        use_fmp: bool = False,
+        max_drawdown: float = 0.70  # Default to 70% drawdown limit
     ):
         """Initialize optimized processor.
 
@@ -97,8 +98,11 @@ class OptimizedBatchProcessor:
         # Filter tracking
         self.filter_reasons = {}  # {reason: count}
 
+        self.max_drawdown = max_drawdown
+
         logger.info(f"OptimizedBatchProcessor initialized")
         logger.info(f"Workers: {max_workers}, Delay: {rate_limit_delay}s")
+        logger.info(f"Max Drawdown Limit: {max_drawdown*100:.0f}%")
         logger.info(f"Effective rate: ~{effective_tps:.1f} TPS")
 
     def load_progress(self) -> Optional[Dict]:
@@ -248,7 +252,7 @@ class OptimizedBatchProcessor:
                 drawdown = (closes - running_max) / running_max
                 max_drawdown = drawdown.min()  # Most negative value
 
-                if max_drawdown < -0.60:  # Dropped more than 60%
+                if max_drawdown < -self.max_drawdown:  # Use configurable limit
                     self.filtered_count += 1
                     self.filter_reasons['severe_drawdown_60pct'] = self.filter_reasons.get('severe_drawdown_60pct', 0) + 1
                     logger.debug(f"{ticker}: Filtered - {max_drawdown*100:.1f}% max drawdown in 5y")

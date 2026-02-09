@@ -5,135 +5,147 @@ import plotly.graph_objects as go
 from src.database.db_manager import DBManager
 from datetime import datetime
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Page Config
-st.set_page_config(page_title="Alpha Intelligence Hedge Fund", layout="wide", page_icon="🏦")
+st.set_page_config(page_title="Alpha Intelligence | Command Center", layout="wide", page_icon="📡")
 
-# Custom CSS for Premium Look
+# Custom CSS for Premium Tooling
 st.markdown("""
     <style>
-    .main {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
-    .stMetric {
-        background-color: #1e2130;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #3e4461;
-    }
-    h1, h2, h3 {
-        color: #00ffcc !important;
-    }
+    .main { background-color: #0d1117; color: #c9d1d9; }
+    .stMetric { background-color: #161b22; padding: 15px; border-radius: 8px; border: 1px solid #30363d; }
+    h1, h2, h3 { color: #58a6ff !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #161b22; border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px; }
+    .stTabs [aria-selected="true"] { background-color: #1f2428; border-bottom: 2px solid #58a6ff; }
+    .status-hold { color: #3fb950; font-weight: bold; }
+    .status-sell { color: #f85149; font-weight: bold; }
+    .status-reduce { color: #d29922; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏦 Alpha Intelligence Hedge Fund")
-st.subheader("Institutional-Grade Portfolio & Performance Analytics")
-
-# Initialize DB
+# Initialize Components
 db = DBManager()
 
-if not db.db_url:
-    st.error("DATABASE_URL not found. Please check your .env file.")
-    st.stop()
+@st.cache_data(ttl=300)
+def get_universe_signals():
+    if db.db_url:
+        return db.get_latest_recommendations(limit=250)
+    return []
 
-# Fetch Data
-@st.cache_data(ttl=600)
-def load_data():
-    return db.get_full_portfolio_data()
+@st.cache_data(ttl=300)
+def get_portfolio_data():
+    if db.db_url:
+        return db.get_full_portfolio_data()
+    return {}
 
-data = load_data()
+@st.cache_data(ttl=300)
+def load_reports():
+    reports = {}
+    if os.path.exists("data/reports/latest_allocation_plan.csv"):
+        reports['allocation'] = pd.read_csv("data/reports/latest_allocation_plan.csv")
+    if os.path.exists("data/reports/latest_rebalance_actions.txt"):
+        with open("data/reports/latest_rebalance_actions.txt", "r") as f:
+            reports['rebalance'] = f.read()
+    return reports
 
-if not data:
-    st.warning("No data found in the database. Run a market scan to populate the portfolio.")
-    st.stop()
+st.title("📡 Alpha Intelligence Market Engine")
+st.write(f"Universe Analysis System | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# --- TOP METRICS ---
-col1, col2, col3, col4 = st.columns(4)
+tabs = st.tabs(["💎 Market Universe", "💼 Portfolio Analytics", "🧪 Custom Audit"])
 
-equity_curve = pd.DataFrame(data['equity_curve'])
-holdings = pd.DataFrame(data['holdings'])
-trades = pd.DataFrame(data['recent_trades'])
-
-if not equity_curve.empty:
-    current_equity = equity_curve['equity'].iloc[-1]
-    prev_equity = equity_curve['equity'].iloc[-2] if len(equity_curve) > 1 else 100000.0
-    change = ((current_equity - prev_equity) / prev_equity) * 100
+# --- TAB 1: MARKET UNIVERSE ---
+with tabs[0]:
+    st.subheader("Latest Buy Signals: Full Market Scan")
+    universe_data = get_universe_signals()
     
-    col1.metric("Total AUM", f"${current_equity:,.0f}", f"{change:+.2f}%")
-    
-    # Simple Alpha Calculation vs Benchmark (SPY)
-    latest_spy = equity_curve['spy'].iloc[-1] or 1.0
-    first_spy = equity_curve['spy'].iloc[0] or 1.0
-    spy_return = ((latest_spy - first_spy) / first_spy) * 100
-    fund_return = ((current_equity - 100000.0) / 100000.0) * 100
-    alpha = fund_return - spy_return
-    
-    col2.metric("Fund Return (ITD)", f"{fund_return:.2f}%")
-    col3.metric("Benchmark (SPY)", f"{spy_return:.2f}%")
-    col4.metric("Alpha", f"{alpha:+.2f}%", delta_color="normal")
-
-# --- PERFORMANCE CHART ---
-st.write("### 📈 Equity Curve vs Benchmark")
-if not equity_curve.empty:
-    # Normalize performance for comparison
-    equity_curve['Fund (Indexed)'] = (equity_curve['equity'] / 100000.0) * 100
-    first_spy = equity_curve['spy'].iloc[0] if equity_curve['spy'].iloc[0] else 1.0
-    equity_curve['Benchmark (Indexed)'] = (equity_curve['spy'] / first_spy) * 100
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=equity_curve['date'], y=equity_curve['Fund (Indexed)'], 
-                           name='Alpha Intelligence Fund', line=dict(color='#00ffcc', width=3)))
-    fig.add_trace(go.Scatter(x=equity_curve['date'], y=equity_curve['Benchmark (Indexed)'], 
-                           name='S&P 500 (SPY)', line=dict(color='#ff3366', dash='dash')))
-    
-    fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0, r=0, t=0, b=0),
-                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-    st.plotly_chart(fig, use_container_width=True)
-
-# --- PORTFOLIO COMPOSITION ---
-c1, c2 = st.columns([2, 1])
-
-with c1:
-    st.write("### 💼 Current Positions")
-    if not holdings.empty:
-        holdings['Market Value'] = holdings['qty'] * holdings['current_price']
-        holdings['Gain/Loss %'] = ((holdings['current_price'] - holdings['avg_price']) / holdings['avg_price']) * 100
+    if universe_data:
+        df_unv = pd.DataFrame(universe_data)
         
-        # Display as styled dataframe
-        st.dataframe(holdings[['ticker', 'sector', 'qty', 'avg_price', 'current_price', 'Market Value', 'Gain/Loss %']].style.format({
-            'avg_price': '${:.2f}', 'current_price': '${:.2f}', 'Market Value': '${:,.0f}', 'Gain/Loss %': '{:+.2f}%'
-        }), height=300, use_container_width=True)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Opportunities Found", len(df_unv))
+        m2.metric("Top Setup", df_unv['ticker'].iloc[0])
+        avg_score = df_unv['score'].mean()
+        m3.metric("Avg Setup Quality", f"{avg_score:.1f}")
+
+        st.dataframe(df_unv[['ticker', 'score', 'price', 'date']].style.format({
+            'score': '{:.1f}', 'price': '${:.2f}', 'date': lambda x: x.strftime('%Y-%m-%d %H:%M')
+        }), use_container_width=True, height=600)
     else:
-        st.info("No active positions.")
+        st.warning("No market signals found in Database. Run `python run_optimized_scan.py` to populate.")
 
-with c2:
-    st.write("### 🏗️ Sector Allocation")
-    if not holdings.empty:
-        sector_dist = holdings.groupby('sector')['Market Value'].sum().reset_index()
-        fig_pie = px.pie(sector_dist, values='Market Value', names='sector', 
-                        color_discrete_sequence=px.colors.sequential.Teal_r)
-        fig_pie.update_layout(template="plotly_dark", height=300, showlegend=False, 
-                             margin=dict(l=20, r=20, t=20, b=20))
-        st.plotly_chart(fig_pie, use_container_width=True)
+# --- TAB 2: PORTFOLIO MANAGEMENT ---
+with tabs[1]:
+    st.subheader("Institutional Portfolio Tracker")
+    p_data = get_portfolio_data()
+    reports = load_reports()
 
-# --- TRADE LEDGER ---
-st.write("### 📜 Recent Executive Trades")
-if not trades.empty:
-    st.table(trades[['ticker', 'action', 'qty', 'price', 'date']].head(10))
-else:
-    st.info("No recent trades recorded.")
+    if not p_data or not p_data.get('holdings'):
+        st.info("No active holdings found. Running a scan will automatically populate elite positions.")
+    else:
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.write("### 🏠 Current Holdings")
+            df_hold = pd.DataFrame(p_data['holdings'])
+            df_hold['Market Value'] = df_hold['qty'] * df_hold['current_price']
+            df_hold['ROI %'] = ((df_hold['current_price'] - df_hold['avg_price']) / df_hold['avg_price']) * 100
+            
+            st.dataframe(df_hold[['ticker', 'sector', 'qty', 'avg_price', 'current_price', 'Market Value', 'ROI %']].style.format({
+                'avg_price': '${:.2f}', 'current_price': '${:.2f}', 'Market Value': '${:,.0f}', 'ROI %': '{:+.2f}%'
+            }), use_container_width=True)
 
-st.sidebar.image("https://img.icons8.com/wired/128/00ffcc/bank.png", width=100)
-st.sidebar.title("Fund Control Panel")
-if st.sidebar.button("Force Data Refresh"):
+        with col2:
+            st.write("### ⚖️ Rebalance Actions")
+            if 'rebalance' in reports:
+                st.code(reports['rebalance'], language='text')
+            else:
+                st.write("No active rebalance signals.")
+
+        st.write("---")
+        st.write("### 📈 Allocation Plan (Next Trades)")
+        if 'allocation' in reports:
+            st.dataframe(reports['allocation'].style.format({
+                'Current_Price': '${:.2f}', 'Est_Cost': '${:,.0f}'
+            }), use_container_width=True)
+        else:
+            st.write("Run a scan to generate new capital allocation suggestions.")
+
+# --- TAB 3: CUSTOM AUDIT ---
+with tabs[2]:
+    st.subheader("Minervini Protocol Audit (Personal Portfolio)")
+    uploaded_file = st.file_uploader("Upload portfolio.json for Audit", type=['json'])
+    
+    if uploaded_file or os.path.exists("data/portfolio_evaluation.json"):
+        if uploaded_file:
+            user_port = json.load(uploaded_file)
+            with open("portfolio.json", "w") as f:
+                json.dump(user_port, f)
+            if st.button("🚀 Execute Audit"):
+                import subprocess
+                subprocess.run(["python", "evaluate_portfolio.py"])
+                st.cache_data.clear()
+                st.rerun()
+
+        if os.path.exists("data/portfolio_evaluation.json"):
+            with open("data/portfolio_evaluation.json", "r") as f:
+                aud_res = json.load(f)
+            
+            df_aud = pd.DataFrame(aud_res)
+            st.write(f"Evaluating `{len(df_aud)}` personal positions...")
+            
+            st.dataframe(df_aud[['ticker', 'gain_loss_pct', 'minervini_score', 'phase_name', 'is_minervini_compliant', 'reasons']].style.format({
+                'gain_loss_pct': '{:+.2f}%', 'minervini_score': '{:.1f}'
+            }), use_container_width=True)
+
+st.sidebar.title("Engine Status")
+st.sidebar.write(f"Connected to DB: `{'Yes' if db.db_url else 'No'}`")
+st.sidebar.write(f"System Time: {datetime.now().strftime('%H:%M:%S')}")
+
+if st.sidebar.button("Refresh All Data"):
     st.cache_data.clear()
     st.rerun()
-
-st.sidebar.write("---")
-st.sidebar.write("System Status: **LIVE** 🟢")
-st.sidebar.write(f"Last Scan: {datetime.now().strftime('%H:%M:%S')}")

@@ -418,7 +418,7 @@ def main():
         logger.info("Broad Scan enabled: Price >$2, Volume >20k, Max Drawdown 85%")
 
     effective_tps = args.workers / args.delay
-    logger.info(f"Configuration: {args.workers} workers × {1/args.delay:.1f} TPS = ~{effective_tps:.1f} TPS effective")
+    logger.info(f"Configuration: {args.workers} workers x {1/args.delay:.1f} TPS = ~{effective_tps:.1f} TPS effective")
 
     # Diagnostics mode
     if args.diagnostics:
@@ -591,7 +591,25 @@ def main():
                 
                 buy_signals.append(final_signal)
 
-        buy_signals = sorted(buy_signals, key=lambda x: x['score'], reverse=True)
+        # Save buy signals for dashboard
+        try:
+            signals_to_save = []
+            for s in buy_signals:
+                signals_to_save.append({
+                    'ticker': s['ticker'],
+                    'score': s['score'],
+                    'price': s.get('current_price') or s.get('breakout_price'),
+                    'stop_loss': s.get('stop_loss'),
+                    'reasons': s.get('reasons', []),
+                    'phase': s.get('phase'),
+                    'sector': s.get('sector', 'Unknown')
+                })
+            
+            os.makedirs("data", exist_ok=True)
+            with open("data/latest_market_signals.json", "w") as f:
+                json.dump(signals_to_save, f, indent=4)
+        except Exception as e:
+            logger.error(f"Failed to save market signals JSON: {e}")
 
         # Sell signals
         sell_signals = []

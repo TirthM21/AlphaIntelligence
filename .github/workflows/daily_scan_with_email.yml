@@ -1,208 +1,90 @@
-name: Daily Market Scan & Newsletter
+name: 📈 Daily Market Scan & Newsletter
 
 on:
-  push:
-    branches:
-      - main
-  # Run every day at 8:00 AM IST (2:30 AM UTC)
   schedule:
-    - cron: '30 2 * * *'  # Daily at 2:30 AM UTC (8:00 AM IST)
-  
-  # Allow manual trigger
+    - cron: '0 22 * * 1-5' # 5:00 PM EST (Market Close)
   workflow_dispatch:
     inputs:
-      use_fmp:
-        description: 'Use FMP enhanced fundamentals'
+      test_mode:
+        description: 'Run with 100 stocks for testing'
         required: false
-        default: 'true'
-      download_sec:
-        description: 'Download SEC filings'
-        required: false
-        default: 'true'
-      send_email:
-        description: 'Send email newsletter'
-        required: false
-        default: 'true'
+        default: false
+        type: boolean
 
 jobs:
-  market-scan:
+  scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
-      - name: 📥 Checkout Repository
+      - name: 🔍 Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for caching
-      
+          fetch-depth: 0
+
       - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
           cache: 'pip'
-      
+
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 📧 Email Diagnostic
-        env:
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+      - name: 📂 Setup Environment
         run: |
-          echo "Checking email configuration..."
-          python -c "
-          import os
-          from src.notifications.email_notifier import EmailNotifier
-          notifier = EmailNotifier()
-          print(f'Email Enabled: {notifier.enabled}')
-          print(f'Sender: {notifier.sender_email}')
-          print(f'Recipient: {notifier.recipient_email}')
-          if not notifier.enabled:
-              exit(1)
-          "
-      - name: 💓 Heartbeat Email
-        env:
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
-          LOG_LEVEL: DEBUG
-        run: |
-          echo "Sending heartbeat email..."
-          python -c "
-          from src.notifications.email_notifier import EmailNotifier
-          import os
-          notifier = EmailNotifier()
-          if notifier.enabled:
-              # Create a tiny temp file for the heart beat
-              with open('heartbeat.md', 'w') as f:
-                  f.write('# 💓 Alpha Intelligence Heartbeat\n\nEmail system is ACTIVE and connected via GitHub Actions.')
-              success = notifier.send_newsletter('heartbeat.md', subject='💓 System Heartbeat: GitHub Actions Active')
-              if not success:
-                  print('Heartbeat FAILED')
-                  exit(1)
-              print('Heartbeat SUCCESS')
-          "
+          mkdir -p data/daily_scans
+          mkdir -p data/newsletters
+          mkdir -p .cache
 
-      - name: 🔍 Run Market Scan
+      - name: 🏥 Heartbeat / Diagnostic
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
           EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
-          LOG_LEVEL: DEBUG
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         run: |
-          echo "🚀 Starting daily market scan..."
-          
-          # Build command with options
-          CMD="python run_optimized_scan.py --workers 3 --delay 0.5"
-          
-          # Add FMP if enabled
-          if [ "${{ github.event.inputs.use_fmp || 'true' }}" = "true" ]; then
-            CMD="$CMD --use-fmp"
-            echo "✓ FMP enhanced fundamentals enabled"
-          fi
-          
-          # Add SEC downloads if enabled
-          if [ "${{ github.event.inputs.download_sec || 'true' }}" = "true" ]; then
-            CMD="$CMD --download-sec"
-            echo "✓ SEC filing downloads enabled"
-          fi
-          
-          # Add email if enabled
-          if [ "${{ github.event.inputs.send_email || 'true' }}" = "true" ]; then
-            CMD="$CMD --send-email"
-            echo "✓ Email newsletter enabled"
-          fi
-          
-          echo "Running: $CMD"
-          $CMD
-      
-      - name: 📊 Upload Scan Results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: scan-results-${{ github.run_number }}
-          path: |
-            data/daily_scans/*.txt
-            data/daily_newsletter.md
-          retention-days: 30
-      
-      - name: 💾 Commit Results to Repository
-        if: success()
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "GitHub Actions Bot"
-          
-          # Add scan results
-          git add data/daily_scans/latest_optimized_scan.txt || true
-          git add data/daily_newsletter.md || true
-          
-          # Commit if there are changes
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "📈 Daily scan results - $(date +'%Y-%m-%d %H:%M')"
-            
-            # Use a retry loop for pushing
-            MAX_RETRIES=5
-            RETRY_COUNT=0
-            SUCCESS=false
-            
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              echo "Push attempt $((RETRY_COUNT + 1))..."
-              if git push origin ${{ github.ref_name }}; then
-                echo "✅ Successfully pushed changes"
-                SUCCESS=true
-                break
-              else
-                echo "❌ Push failed. Retrying in 10 seconds..."
-                sleep 10
-                git pull --rebase origin ${{ github.ref_name }}
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-              fi
-            done
-            
-            if [ "$SUCCESS" = false ]; then
-              echo "❌ Failed to push changes after $MAX_RETRIES attempts"
-              exit 1
-            fi
-          fi
-      
-      - name: 🚨 Notify on Failure
-        if: failure()
+          python run_optimized_scan.py --diagnostics
+
+      - name: 🚀 Run Full Market Scan
         env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: |
-          python -c "
-          from src.notifications.email_notifier import EmailNotifier
-          import os
-          
-          notifier = EmailNotifier()
-          notifier.send_error_alert(
-              'Daily market scan failed',
-              'Check GitHub Actions logs for details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-          )
-          "
-      
-      - name: ✅ Summary
-        if: always()
+          TEST_FLAG=""
+          if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then TEST_FLAG="--test-mode"; fi
+          python run_optimized_scan.py --aggressive --use-fmp --git-storage --ai --send-email $TEST_FLAG
+
+      - name: 💼 Evaluate Portfolio
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          echo "## 📊 Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f "data/daily_newsletter.md" ]; then
-            echo "✅ Newsletter generated successfully" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Preview:" >> $GITHUB_STEP_SUMMARY
-            head -n 30 data/daily_newsletter.md >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ Newsletter generation failed" >> $GITHUB_STEP_SUMMARY
-          fi
+          python evaluate_portfolio.py
+
+      - name: 📤 Upload Scan Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-reports
+          path: |
+            data/daily_scans/
+            data/newsletters/
+            data/portfolio_evaluation.json
+
+      - name: 💾 Commit Cache & Progress
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .cache/*.json || true
+          git add data/portfolio_evaluation.json || true
+          git commit -m "chore: persist automated scan data [skip ci]" || echo "No changes"
+          git push

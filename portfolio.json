@@ -1,0 +1,14 @@
+[
+    {
+        "ticker": "AAPL",
+        "quantity": 10,
+        "average_buy_price": 180.50,
+        "date_added": "2024-01-10"
+    },
+    {
+        "ticker": "NVDA",
+        "quantity": 5,
+        "average_buy_price": 500.00,
+        "date_added": "2024-01-15"
+    }
+]

@@ -1,18 +1,18 @@
-name: 📂 Daily Data Persistence & Growth Scan
+name: 📈 Daily Portfolio Operations
 
 on:
   schedule:
-    - cron: '0 0 * * 1-5' # Midnight EST
-  workflow_dispatch:
+    - cron: '30 21 * * 1-5' # 4:30 PM EST (Market Close)
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
-  persistence:
+  portfolio_system:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     
     steps:
-      - name: 🔍 Checkout Code
+      - name: 🔍 Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -28,19 +28,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🚀 Run Broad Market Scan
+      - name: 📂 Setup Directories
+        run: |
+          mkdir -p data/newsletters
+          mkdir -p data/reports
+          mkdir -p .cache
+
+      - name: 📊 Run Market Scan
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
         run: |
-          python run_optimized_scan.py --broad --git-storage --workers 10
+          python run_optimized_scan.py --workers 20 --min-price 5 --max-price 500 --min-vol 500000 --ai
 
-      - name: 💾 Commit & Push Global Data
+      - name: 💼 Evaluate Portfolio
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python evaluate_portfolio.py
+
+      - name: 💾 Commit and Push Updates
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/portfolio_evaluation.json
           git add .cache/*.json || true
-          git add data/daily_scans/*.txt || true
-          git commit -m "data: broad market scan persistence [skip ci]" || echo "No changes"
+          git commit -m "chore: nightly portfolio evaluation [skip ci]" || echo "No changes to commit"
           git push

@@ -192,6 +192,26 @@ class DBManager:
         finally:
             session.close()
 
+    def get_latest_recommendations(self, limit: int = 200) -> List[Dict]:
+        """Fetch the most recent buy signals recorded in the database."""
+        if not self.db_url: return []
+        
+        session = self.Session()
+        try:
+            # We filter for BUY signals and sort by timestamp, then by score
+            # In a real setup, we might filter by the exact 'latest' batch timestamp
+            recs = session.query(Recommendation).filter_by(signal_type='BUY').order_by(Recommendation.timestamp.desc(), Recommendation.score.desc()).limit(limit).all()
+            return [
+                {
+                    'ticker': r.ticker,
+                    'score': r.score,
+                    'price': r.price_at_signal,
+                    'date': r.timestamp
+                } for r in recs
+            ]
+        finally:
+            session.close()
+
     def update_portfolio_from_signals(self, buy_signals: List[Dict], max_positions: int = 20):
         """Automatically update portfolio based on elite buy signals."""
         if not self.db_url or not buy_signals: return

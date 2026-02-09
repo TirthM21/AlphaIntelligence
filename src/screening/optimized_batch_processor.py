@@ -234,21 +234,6 @@ class OptimizedBatchProcessor:
 
             current_price = price_data['Close'].iloc[-1]
 
-            # Historical drawdown filter (using 5y data we already fetched)
-            # Exclude stocks that dropped >60% from any high in past 5 years
-            if not long_hist.empty and len(long_hist) >= 252:  # At least 1 year
-                closes = long_hist['Close']
-                # Calculate max drawdown from any previous high
-                running_max = closes.expanding().max()
-                drawdown = (closes - running_max) / running_max
-                max_drawdown = drawdown.min()  # Most negative value
-
-                if max_drawdown < -self.max_drawdown:  # Use configurable limit
-                    self.filtered_count += 1
-                    self.filter_reasons['severe_drawdown_60pct'] = self.filter_reasons.get('severe_drawdown_60pct', 0) + 1
-                    logger.debug(f"{ticker}: Filtered - {max_drawdown*100:.1f}% max drawdown in 5y")
-                    return None
-
             # Price filter
             if current_price < min_price or current_price > max_price:
                 self.filtered_count += 1

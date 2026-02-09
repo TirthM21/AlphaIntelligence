@@ -121,8 +121,10 @@ class PortfolioManager:
             
         df = pd.DataFrame(allocations)
         output_file = self.report_dir / f"allocation_plan_{datetime.now().strftime('%Y%m%d')}.csv"
+        latest_file = self.report_dir / "latest_allocation_plan.csv"
         df.to_csv(output_file, index=False)
-        logger.info(f"Allocation plan saved to {output_file}")
+        df.to_csv(latest_file, index=False)
+        logger.info(f"Allocation plan saved to {output_file} and {latest_file}")
 
     def _generate_rebalance_actions(self, sell_signals: List[Dict]):
         """Generates a text file with suggested exit/rebalance actions."""
@@ -154,9 +156,12 @@ class PortfolioManager:
             actions.append("No active portfolio positions triggered a sell signal. Sit tight.")
             
         output_file = self.report_dir / f"rebalance_actions_{datetime.now().strftime('%Y%m%d')}.txt"
+        latest_file = self.report_dir / "latest_rebalance_actions.txt"
         with open(output_file, 'w') as f:
             f.write("\n".join(actions))
-        logger.info(f"Rebalance actions saved to {output_file}")
+        with open(latest_file, 'w') as f:
+            f.write("\n".join(actions))
+        logger.info(f"Rebalance actions saved to {output_file} and {latest_file}")
 
     def _generate_alpha_report(self):
         """Compares historical recommendations against S&P 500."""

@@ -58,7 +58,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def save_report(results, buy_signals, sell_signals, spy_analysis, breadth, output_dir="./data/daily_scans"):
+def save_report(results, buy_signals, sell_signals, spy_analysis, breadth, filter_breakdown=None, output_dir="./data/daily_scans"):
     """Save comprehensive report."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -80,6 +80,16 @@ def save_report(results, buy_signals, sell_signals, spy_analysis, breadth, outpu
     output.append(f"Analyzed: {results['total_analyzed']:,} stocks")
     output.append(f"Processing Time: {results['processing_time_seconds']/60:.1f} minutes")
     output.append(f"Actual TPS: {results['actual_tps']:.2f}")
+
+    if filter_breakdown:
+        output.append("\nFILTER BREAKDOWN (Why stocks were skipped)")
+        output.append("-"*80)
+        sorted_filters = sorted(filter_breakdown.items(), key=lambda x: x[1], reverse=True)
+        total_filtered = results.get('filtered_count', 0)
+        for reason, count in sorted_filters:
+            pct = (count / total_filtered * 100) if total_filtered > 0 else 0
+            output.append(f"• {reason:25}: {count:5} ({pct:.1f}%)")
+        output.append("-" * 80)
 
     error_rate = results['error_rate'] * 100
     if error_rate < 1:
@@ -386,6 +396,7 @@ def main():
     parser.add_argument('--download-sec', action='store_true', help='Download SEC 10-Qs for top buy signals (requires sec-edgar-toolkit)')
     parser.add_argument('--send-email', action='store_true', help='Send newsletter via email (requires EMAIL_SENDER and EMAIL_PASSWORD env vars)')
     parser.add_argument('--diagnostics', action='store_true', help='Run diagnostic check for API keys and SEC access')
+    parser.add_argument('--broad', action='store_true', help='Broad Scan: lower price ($2) and volume (20k) thresholds')
 
     args = parser.parse_args()
 
@@ -398,6 +409,12 @@ def main():
         args.workers = 5
         args.delay = 0.3
         logger.warning("Aggressive mode: 5 workers, 0.3s delay (~17 TPS) - MAY HIT RATE LIMITS!")
+
+    if args.broad:
+        args.min_price = 2.0
+        args.min_volume = 20000
+        args.max_drawdown = 0.85
+        logger.info("Broad Scan enabled: Price >$2, Volume >20k, Max Drawdown 85%")
 
     effective_tps = args.workers / args.delay
     logger.info(f"Configuration: {args.workers} workers × {1/args.delay:.1f} TPS = ~{effective_tps:.1f} TPS effective")
@@ -600,7 +617,7 @@ def main():
         sell_signals = sorted(sell_signals, key=lambda x: x['score'], reverse=True)
 
         # Report
-        save_report(results, buy_signals, sell_signals, spy_analysis, breadth)
+        save_report(results, buy_signals, sell_signals, spy_analysis, breadth, filter_breakdown=results.get('filter_reasons'))
 
         # Record Recommendations & Generate Portfolio Reports
         try:

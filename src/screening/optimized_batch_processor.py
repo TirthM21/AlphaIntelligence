@@ -214,27 +214,18 @@ class OptimizedBatchProcessor:
             self.total_requests += 1
 
             # Fetch price history (5 years to check drawdown, use last 1y for analysis)
-            # This is more efficient than two separate fetches
-            if self.use_git_storage and self.git_fetcher:
-                # Git fetcher only does 1y, fetch 5y for drawdown check first
-                import yfinance as yf
-                long_hist = yf.Ticker(ticker).history(period='5y', interval='1d')
-
-                if not long_hist.empty:
-                    # Use last 1 year for technical analysis
-                    price_data = long_hist.tail(252) if len(long_hist) > 252 else long_hist
-                else:
-                    # Fallback to git fetcher if 5y fails
-                    price_data = self.git_fetcher.fetch_price_fresh(ticker)
-                    long_hist = price_data
+            # Use self.fetcher (YahooFinanceFetcher) which has built-in disk caching
+            long_hist = self.fetcher.fetch_price_history(ticker, period='5y')
+            
+            if not long_hist.empty:
+                # Use last 1 year for technical analysis (standard phase indicators)
+                price_data = long_hist.tail(252) if len(long_hist) > 252 else long_hist
+            elif self.use_git_storage and self.git_fetcher:
+                # Fallback to fresh fetch if 5y fails
+                price_data = self.git_fetcher.fetch_price_fresh(ticker)
+                long_hist = price_data
             else:
-                # Regular fetcher - fetch 5y once
-                long_hist = self.fetcher.fetch_price_history(ticker, period='5y')
-                if not long_hist.empty:
-                    # Use last 1 year for technical analysis
-                    price_data = long_hist.tail(252) if len(long_hist) > 252 else long_hist
-                else:
-                    price_data = pd.DataFrame()
+                price_data = pd.DataFrame()
 
             if price_data.empty or len(price_data) < 200:
                 self.filtered_count += 1
@@ -476,7 +467,7 @@ class OptimizedBatchProcessor:
         total_time = time.time() - start_time
         actual_rate = len(tickers) / total_time if total_time > 0 else 0
 
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("OPTIMIZED BATCH PROCESSING COMPLETE")
         logger.info(f"Time: {str(timedelta(seconds=int(total_time)))}")
         logger.info(f"Processed: {len(tickers)} tickers")
@@ -487,7 +478,7 @@ class OptimizedBatchProcessor:
 
         # Log filter breakdown
         if self.filter_reasons:
-            logger.info("-"*60)
+            logger.info("-" * 60)
             logger.info("FILTER BREAKDOWN:")
             sorted_filters = sorted(self.filter_reasons.items(), key=lambda x: x[1], reverse=True)
             for reason, count in sorted_filters:
@@ -496,7 +487,7 @@ class OptimizedBatchProcessor:
 
         # Log error breakdown
         if self.error_types:
-            logger.info("-"*60)
+            logger.info("-" * 60)
             logger.info("ERROR BREAKDOWN:")
             sorted_errors = sorted(self.error_types.items(), key=lambda x: x[1], reverse=True)
             for error_type, count in sorted_errors:
@@ -505,7 +496,7 @@ class OptimizedBatchProcessor:
                 logger.info(f"  {error_type}: {count} ({pct:.1f}%)")
                 logger.info(f"    Example: {example_ticker} - {example_msg[:100]}")
 
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         return {
             'analyses': all_analyses,
@@ -514,7 +505,9 @@ class OptimizedBatchProcessor:
             'total_analyzed': len(all_analyses),
             'processing_time_seconds': total_time,
             'actual_tps': actual_rate,
-            'error_rate': self.error_count / max(self.total_requests, 1)
+            'error_rate': self.error_count / max(self.total_requests, 1),
+            'filter_reasons': self.filter_reasons,
+            'filtered_count': self.filtered_count
         }
 
     def clear_progress(self):

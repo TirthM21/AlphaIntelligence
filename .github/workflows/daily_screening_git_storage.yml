@@ -63,6 +63,14 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Cache Price History
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: ${{ runner.os }}-price-cache-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-price-cache-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

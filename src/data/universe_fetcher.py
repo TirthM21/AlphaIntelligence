@@ -143,7 +143,7 @@ class USStockUniverseFetcher:
                 self.cache_file.stat().st_mtime
             )
 
-            if cache_age < timedelta(days=1):
+            if cache_age < timedelta(hours=23):
                 logger.info("Loading universe from cache")
                 with open(self.cache_file, 'rb') as f:
                     cached_data = pickle.load(f)

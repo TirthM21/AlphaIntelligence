@@ -335,8 +335,14 @@ class YahooFinanceFetcher:
             # Fetch price history
             prices = self.fetch_price_history(ticker, period=period)
             if not prices.empty:
-                prices['ticker'] = ticker
-                all_prices.append(prices)
+                # Ensure Date is a column before concatenation to avoid losing it with ignore_index=True
+                prices_with_date = prices.copy()
+                if not 'Date' in prices_with_date.columns:
+                    prices_with_date.index.name = 'Date'
+                    prices_with_date = prices_with_date.reset_index()
+                
+                prices_with_date['ticker'] = ticker
+                all_prices.append(prices_with_date)
 
         # Combine all data
         fundamentals_df = pd.DataFrame(all_fundamentals) if all_fundamentals else pd.DataFrame()

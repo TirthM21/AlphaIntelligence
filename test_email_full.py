@@ -20,24 +20,27 @@ tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
 print(f"Fetching data for {len(tickers)} stocks...")
 fundamentals_df, prices_df = fetcher.fetch_multiple(tickers, period="5y")
 
-# Save to database
-if not fundamentals_df.empty:
-    print(f"\nSaving {len(fundamentals_df)} stocks to database...")
-    for _, row in fundamentals_df.iterrows():
-        ticker = row['ticker']
-        db.save_stock_fundamentals(ticker, row.to_dict())
+# Save to database (Optional for email test)
+try:
+    if not fundamentals_df.empty:
+        print(f"\nSaving {len(fundamentals_df)} stocks to database...")
+        for _, row in fundamentals_df.iterrows():
+            ticker = row['ticker']
+            db.save_stock_fundamentals(ticker, row.to_dict())
 
-    # Save price history
-    for ticker in tickers:
-        ticker_prices = prices_df[prices_df['ticker'] == ticker].copy()
-        if not ticker_prices.empty:
-            ticker_prices = ticker_prices.drop('ticker', axis=1)
-            db.save_price_history(ticker, ticker_prices)
+        # Save price history
+        for ticker in tickers:
+            ticker_prices = prices_df[prices_df['ticker'] == ticker].copy()
+            if not ticker_prices.empty:
+                # We need a Date column for save_price_history
+                # YahooFinanceFetcher.fetch_multiple now provides it
+                db.save_price_history(ticker, ticker_prices)
 
-    print("Data saved successfully!")
-else:
-    print("No data fetched!")
-    exit(1)
+        print("Data saved successfully!")
+    else:
+        print("No data fetched from Yahoo Finance!")
+except Exception as e:
+    print(f"⚠️ Database save failed (continuing to email test): {e}")
 
 print("\nScreening candidates...")
 results = screen_candidates(db, tickers)

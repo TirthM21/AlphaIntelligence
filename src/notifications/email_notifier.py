@@ -155,6 +155,83 @@ class EmailNotifier:
         except Exception as e:
             logger.error(f"❌ Failed to send error alert: {e}")
             return False
+
+    def send_screening_results(self, results, top_n: int = 20) -> bool:
+        """Send screening results via email.
+        
+        Args:
+            results: DataFrame or list of results
+            top_n: Number of top results to include
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self.enabled:
+            return False
+            
+        try:
+            import pandas as pd
+            if isinstance(results, pd.DataFrame):
+                results_list = results.to_dict('records')
+            else:
+                results_list = results
+                
+            top_results = results_list[:top_n]
+            
+            subject = f"🎯 Stock Screening Results - {datetime.now().strftime('%Y-%m-%d')}"
+            
+            # Simple HTML table for results
+            table_rows = []
+            for item in top_results:
+                ticker = item.get('ticker', 'N/A')
+                score = item.get('score', 0)
+                phase = item.get('phase', 'N/A')
+                price = item.get('current_price', item.get('price', 0))
+                
+                table_rows.append(f"""
+                <tr>
+                    <td><strong>{ticker}</strong></td>
+                    <td>{score}</td>
+                    <td>{phase}</td>
+                    <td>${price:.2f}</td>
+                </tr>
+                """)
+            
+            body_html = f"""
+            <h2>Stock Screening Results</h2>
+            <p>Found {len(results_list)} candidates. Here are the top {len(top_results)}:</p>
+            <table border="1" cellpadding="10" style="border-collapse: collapse; width: 100%;">
+                <tr style="background-color: #f2f2f2;">
+                    <th>Ticker</th>
+                    <th>Score</th>
+                    <th>Phase</th>
+                    <th>Price</th>
+                </tr>
+                {"".join(table_rows)}
+            </table>
+            <p>Check the full report for more details.</p>
+            """
+            
+            # Use newsletter template format
+            full_html = self._markdown_to_html(body_html)
+            
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.sender_email
+            msg['To'] = self.recipient_email
+            msg.attach(MIMEText(full_html, 'html'))
+            
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+            
+            logger.info(f"✅ Screening results sent to {self.recipient_email}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to send screening results: {e}")
+            return False
     
     def _markdown_to_html(self, markdown_text: str) -> str:
         """Convert markdown to HTML (simple conversion for newsletters).

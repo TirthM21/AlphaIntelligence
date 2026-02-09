@@ -100,7 +100,7 @@ jobs:
 
           # Conservative mode to avoid rate limits
           # --git-storage flag enables Git-based fundamental storage
-          python run_optimized_scan.py --conservative --git-storage
+          python run_optimized_scan.py --conservative --git-storage --send-email
 
       - name: Show fundamental refresh stats
         if: always()

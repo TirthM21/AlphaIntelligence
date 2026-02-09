@@ -107,6 +107,35 @@ jobs:
           path: data/quarterly_reports/
           retention-days: 90
 
+      - name: 📧 Send Email Notification
+        if: always()
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: |
+          python -c "
+          from src.notifications.email_notifier import EmailNotifier
+          import os
+          from datetime import datetime
+          
+          notifier = EmailNotifier()
+          if not notifier.enabled:
+              print('Email not configured, skipping...')
+              exit(0)
+              
+          # Simplified status detection for in-job step
+          date_str = datetime.now().strftime('%Y-%m-%d')
+          subject = f'📉 Quarterly Compounder Scan Summary - {date_str}'
+          body = 'The quarterly stock scan has finished. Check the GitHub Actions logs for the final status and generated reports.'
+          
+          # Simple markdown to HTML conversion
+          with open('summary_email.md', 'w') as f:
+              f.write(f'# {subject}\n\n{body}\n\n[View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})')
+          
+          notifier.send_newsletter('summary_email.md', subject=subject)
+          "
+
   notify:
     runs-on: ubuntu-latest
     needs: quarterly_scan

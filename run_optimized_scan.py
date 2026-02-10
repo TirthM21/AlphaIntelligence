@@ -689,7 +689,7 @@ def main():
         # Generate Newsletter
         try:
             logger.info("Generating daily newsletter...")
-            newsletter_gen = NewsletterGenerator()
+            newsletter_gen = NewsletterGenerator(finnhub_fetcher=finnhub_fetcher)
             
             # Prepare status dict
             market_status = {

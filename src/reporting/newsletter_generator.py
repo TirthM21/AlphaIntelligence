@@ -9,6 +9,7 @@ from pathlib import Path
 import yfinance as yf
 
 from ..data.enhanced_fundamentals import EnhancedFundamentalsFetcher
+from ..data.finnhub_fetcher import FinnhubFetcher
 from ..ai.ai_agent import AIAgent
 
 logger = logging.getLogger(__name__)
@@ -16,8 +17,9 @@ logger = logging.getLogger(__name__)
 class NewsletterGenerator:
     """Generates a high-quality, professional daily market newsletter."""
 
-    def __init__(self, portfolio_path: str = "./data/positions.json"):
+    def __init__(self, portfolio_path: str = "./data/positions.json", finnhub_fetcher: Optional[FinnhubFetcher] = None):
         self.fetcher = EnhancedFundamentalsFetcher()
+        self.finnhub_fetcher = finnhub_fetcher or FinnhubFetcher()
         self.ai_agent = AIAgent()
         self.portfolio_path = Path(portfolio_path)
 
@@ -62,6 +64,20 @@ class NewsletterGenerator:
                     portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
             except Exception as e:
                 logger.error(f"Failed to fetch FMP data: {e}")
+
+        # 1.5 Fetch Finnhub Data
+        finnhub_market_news = []
+        finnhub_sentiment = {}
+        if self.finnhub_fetcher.api_key:
+            try:
+                finnhub_market_news = self.finnhub_fetcher.get_market_news(category="general")[:5]
+                # Get sentiment for top 5 portfolio stocks
+                for t in portfolio_tickers[:5]:
+                    sentiment = self.finnhub_fetcher.get_news_sentiment(t)
+                    if sentiment:
+                        finnhub_sentiment[t] = sentiment
+            except Exception as e:
+                logger.error(f"Failed to fetch Finnhub data: {e}")
 
         # Fallback for news if FMP failed or returned nothing
         if not market_news:
@@ -269,6 +285,33 @@ class NewsletterGenerator:
                 content.append(f"- [{title}]({url}) - *{site}*")
         else:
             content.append("*Global news stream offline.*")
+
+        # --- Finnhub Market Pulse ---
+        if finnhub_market_news or finnhub_sentiment:
+            content.append("---")
+            content.append("## 🛰️ Finnhub Market Intelligence")
+            
+            if finnhub_market_news:
+                content.append("### 🗞️ Global Headlines (via Finnhub)")
+                for item in finnhub_market_news:
+                    title = item.get('headline', 'No Title')
+                    url = item.get('url', '#')
+                    source = item.get('source', 'Finnhub')
+                    content.append(f"- [{title}]({url}) - *{source}*")
+                content.append("")
+
+            if finnhub_sentiment:
+                content.append("### 🧠 Portfolio Sentiment Scorecard")
+                content.append("| Ticker | Sentiment Score | Bullish Buzz | Bearish Buzz | Sector Avg |")
+                content.append("|--------|-----------------|--------------|--------------|------------|")
+                for t, s in finnhub_sentiment.items():
+                    score = s.get('sentiment', {}).get('bullishPercent', 50)
+                    buzz = s.get('buzz', {}).get('articlesInLastWeek', 0)
+                    sector_avg = s.get('sectorAverageBullishPercent', 50)
+                    
+                    sentiment_label = "🟢 Bullish" if score > 60 else "🔴 Bearish" if score < 40 else "🟡 Neutral"
+                    content.append(f"| {t} | {sentiment_label} ({score:.1f}%) | {buzz} articles | - | {sector_avg:.1f}% |")
+                content.append("")
 
         content.append("")
         content.append("---")

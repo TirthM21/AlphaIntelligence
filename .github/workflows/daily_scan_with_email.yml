@@ -67,6 +67,12 @@ jobs:
         run: |
           python src/reporting/portfolio_manager.py --evaluate
 
+      - name: 🛡️ Position Management (Stops & Exits)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python src/analysis/position_manager.py --csv
+
       - name: 📤 Upload Scan Results
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +80,7 @@ jobs:
           path: |
             data/daily_scans/
             data/newsletters/
+            data/reports/
             data/portfolio_evaluation.json
 
       - name: 💾 Commit Cache & Progress

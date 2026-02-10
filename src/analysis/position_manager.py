@@ -332,7 +332,7 @@ class PositionManager:
                 entry_date=entry_date
             )
 
-            analysis['quantity'] = pos['quantity']
+            analysis['quantity'] = pos.get('quantity', 0)
             analyses.append(analysis)
 
         # Generate summary
@@ -377,6 +377,36 @@ class PositionManager:
             'urgent_actions': urgent,
             'timestamp': datetime.now()
         }
+
+    def save_report_csv(self, analysis_result: Dict, output_path: str = "./data/reports/position_management.csv"):
+        """Save analysis results to CSV.
+
+        Args:
+            analysis_result: Output from analyze_portfolio()
+            output_path: Where to save the CSV
+        """
+        analyses = analysis_result.get('position_analyses', [])
+        if not analyses:
+            logger.warning("No analyses to save to CSV")
+            return
+
+        df = pd.DataFrame(analyses)
+        
+        # Flatten dictionary columns if needed
+        # We'll just select key columns for the CSV
+        columns = [
+            'ticker', 'entry_price', 'current_price', 'current_gain_pct', 
+            'should_adjust_stop', 'recommended_stop', 'action', 
+            'tax_treatment', 'locked_profit_pct', 'partial_exit_pct'
+        ]
+        
+        # Ensure columns exist before selecting
+        existing_columns = [col for col in columns if col in df.columns]
+        df_csv = df[existing_columns]
+        
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        df_csv.to_csv(output_path, index=False)
+        logger.info(f"Position management report saved to {output_path}")
 
     def format_portfolio_report(self, analysis_result: Dict) -> str:
         """Format portfolio analysis as readable report.
@@ -489,26 +519,49 @@ class PositionManager:
 
 
 def main():
-    """Example usage."""
-    # Example positions
-    positions = [
-        {'ticker': 'AAPL', 'quantity': 50, 'average_buy_price': 175.50, 'current_price': 182.30},
-        {'ticker': 'MSFT', 'quantity': 25, 'average_buy_price': 380.00, 'current_price': 385.50},
-        {'ticker': 'NVDA', 'quantity': 30, 'average_buy_price': 495.00, 'current_price': 545.00},
-    ]
-
-    # Example entry dates (for tax treatment)
-    entry_dates = {
-        'AAPL': datetime.now() - timedelta(days=45),  # 45 days ago (short-term)
-        'MSFT': datetime.now() - timedelta(days=400),  # 400 days ago (long-term)
-        'NVDA': datetime.now() - timedelta(days=20),   # 20 days ago (short-term)
-    }
-
+    """Run position management from command line."""
+    import argparse
+    from src.database.db_manager import DBManager
+    
+    parser = argparse.ArgumentParser(description='Position Management & Stop Loss Analysis')
+    parser.add_argument('--csv', action='store_true', help='Save report as CSV')
+    args = parser.parse_args()
+    
+    # Initialize components
+    db = DBManager()
     manager = PositionManager()
-    result = manager.analyze_portfolio(positions, entry_dates)
+    
+    # 1. Load holdings from SQL
+    logger.info("Fetching current portfolio holdings from SQL...")
+    portfolio_data = db.get_full_portfolio_data()
+    holdings = portfolio_data.get('holdings', [])
+    
+    if not holdings:
+        logger.warning("No active holdings found in database.")
+        return
 
+    # Convert holdings to required format
+    positions = []
+    for h in holdings:
+        positions.append({
+            'ticker': h['ticker'],
+            'quantity': h['quantity'],
+            'average_buy_price': h['average_buy_price'],
+            'current_price': h.get('current_price') or h['average_buy_price']
+        })
+    
+    # 2. Run Analysis
+    logger.info(f"Analyzing {len(positions)} positions...")
+    result = manager.analyze_portfolio(positions)
+    
+    # 3. Output
     print(manager.format_portfolio_report(result))
-
+    
+    if args.csv:
+        timestamp = datetime.now().strftime('%Y%m%d')
+        output_path = f"./data/reports/position_management_{timestamp}.csv"
+        manager.save_report_csv(result, output_path)
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     main()

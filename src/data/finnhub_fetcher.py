@@ -174,6 +174,14 @@ class FinnhubFetcher:
         """Get news sentiment."""
         return self._fetch("news-sentiment", {"symbol": symbol}, cache_hours=24)
 
+    def get_market_news(self, category: str = "general") -> Optional[List[Dict]]:
+        """Get general market news (general, forex, crypto, merger)."""
+        return self._fetch("news", {"category": category}, cache_hours=1)
+
+    def get_basic_financials(self, symbol: str) -> Optional[Dict]:
+        """Get basic financials (metric=all)."""
+        return self._fetch("stock/metric", {"symbol": symbol, "metric": "all"}, cache_hours=24)
+
     # 5. Calendars
     def get_earnings_calendar(self, start: str = None, end: str = None) -> Optional[List[Dict]]:
         """Get earnings calendar."""

@@ -50,11 +50,18 @@ jobs:
         run: |
           python src/reporting/portfolio_manager.py --evaluate
 
+      - name: 🛡️ Position Management (Stops & Exits)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python src/analysis/position_manager.py --csv
+
       - name: 💾 Commit and Push Updates
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/portfolio_evaluation.json
+          git add data/reports/*.csv || true
           git add .cache/*.json || true
-          git commit -m "chore: nightly portfolio evaluation [skip ci]" || echo "No changes to commit"
+          git commit -m "chore: nightly portfolio evaluation & position management [skip ci]" || echo "No changes to commit"
           git push

@@ -53,13 +53,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python src/reporting/portfolio_manager.py --evaluate
+          python -m src.reporting.portfolio_manager --evaluate
 
       - name: 🛡️ Position Management (Stops & Exits)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python src/analysis/position_manager.py --csv
+          python -m src.analysis.position_manager --csv
 
       - name: 💾 Commit and Push Updates
         run: |

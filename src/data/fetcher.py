@@ -48,7 +48,7 @@ class YahooFinanceFetcher:
         cache_dir: str = "./data/cache",
         cache_expiry_hours: int = 24,
         max_retries: int = 3,
-        retry_delay: int = 2
+        retry_delay: int = 5
     ) -> None:
         """Initialize the YahooFinanceFetcher.
 
@@ -152,7 +152,10 @@ class YahooFinanceFetcher:
                     f"Attempt {attempt + 1}/{self.max_retries} failed for {ticker}: {e}"
                 )
                 if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay)
+                    # Exponential backoff: 5s, 10s, 20s...
+                    sleep_time = self.retry_delay * (2 ** attempt)
+                    logger.warning(f"Sleeping {sleep_time}s before retry...")
+                    time.sleep(sleep_time)
                 else:
                     logger.error(f"Failed to fetch {ticker} after {self.max_retries} attempts")
                     return None

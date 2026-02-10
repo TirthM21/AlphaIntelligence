@@ -121,7 +121,10 @@ class EmailNotifier:
             return True
             
         except Exception as e:
-            logger.error(f"❌ SMTP FAILURE for {self.recipient_email}: {e}")
+            if "535" in str(e):
+                logger.error(f"❌ SMTP AUTH FAILURE: Username/Password rejected. Check EMAIL_SENDER and EMAIL_PASSWORD in .env. (If using Gmail, ensure you use an App Password, not your regular password).")
+            else:
+                logger.error(f"❌ SMTP FAILURE for {self.recipient_email}: {e}")
             import traceback
             logger.debug(traceback.format_exc())
             return False
@@ -174,7 +177,10 @@ class EmailNotifier:
             return True
             
         except Exception as e:
-            logger.error(f"❌ Failed to send error alert: {e}")
+            if "535" in str(e):
+                logger.error(f"❌ SMTP AUTH FAILURE: Username/Password rejected. Check .env credentials.")
+            else:
+                logger.error(f"❌ Failed to send error alert: {e}")
             return False
 
     def send_screening_results(self, results, top_n: int = 20) -> bool:

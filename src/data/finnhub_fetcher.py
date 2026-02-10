@@ -93,6 +93,12 @@ class FinnhubFetcher:
                 pickle.dump(data, f)
                 
             return data
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logger.warning(f"Finnhub Access Denied (403): Endpoint '{endpoint}' may require a premium tier or different API key.")
+            else:
+                logger.error(f"Finnhub HTTP Error ({endpoint}): {e}")
+            return None
         except Exception as e:
             logger.error(f"Finnhub API Error ({endpoint}): {e}")
             return None

@@ -470,6 +470,7 @@ def main():
         finnhub_fetcher.min_delay = 5.0
         
     enhanced_fetcher = EnhancedFundamentalsFetcher(fmp_fetcher=fmp_fetcher, finnhub_fetcher=finnhub_fetcher)
+    fundamentals_fetcher = enhanced_fetcher # Alias for consistency across scripts
     if args.use_fmp and enhanced_fetcher.fmp_available:
         logger.info("FMP enabled - will use for buy signal fundamentals (DCF + Insider + Margins)")
     elif args.use_fmp:

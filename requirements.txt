@@ -11,3 +11,4 @@ pyyaml>=6.0
 numpy>=1.24.0
 sec-edgar-downloader>=4.3.0
 openai>=1.0.0
+pyrate-limiter>=3.0.0

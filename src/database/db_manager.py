@@ -67,6 +67,18 @@ class DailyPerformance(Base):
     benchmark_price = Column(Float) # SPY price
     nav = Column(Float) # Net Asset Value per share or scale
 
+class AllocationPlan(Base):
+    """Suggested allocations for new buy signals."""
+    __tablename__ = 'allocation_plans'
+    
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String(20), nullable=False)
+    score = Column(Float)
+    price = Column(Float)
+    recommended_shares = Column(Integer)
+    est_cost = Column(Float)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
 class DBManager:
     """Handles connection and operations for the Neon Postgres database."""
     
@@ -316,5 +328,29 @@ class DBManager:
                      'qty': t.quantity, 'date': t.timestamp} for t in trades
                 ]
             }
+        finally:
+            session.close()
+    def save_allocation_plan(self, allocations: List[Dict]):
+        """Save suggested allocation plan to database."""
+        if not self.db_url or not allocations: return
+        
+        session = self.Session()
+        try:
+            # Clear old plan (optional, but usually we just want the latest)
+            # Or we can just keep adding with timestamps
+            for a in allocations:
+                plan = AllocationPlan(
+                    ticker=a['ticker'],
+                    score=a['score'],
+                    price=a['price'],
+                    recommended_shares=a['recommended_shares'],
+                    est_cost=a['est_cost']
+                )
+                session.add(plan)
+            session.commit()
+            logger.info(f"Saved {len(allocations)} allocation suggestions to SQL.")
+        except Exception as e:
+            logger.error(f"Failed to save allocation plan to SQL: {e}")
+            session.rollback()
         finally:
             session.close()

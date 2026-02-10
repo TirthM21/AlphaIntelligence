@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_quarterly_financials(ticker: str) -> Dict[str, any]:
-    """Fetch quarterly financial data for a stock.
+    """Fetch quarterly financial data for a stock with disk caching.
 
     Args:
         ticker: Stock ticker symbol
@@ -30,6 +30,25 @@ def fetch_quarterly_financials(ticker: str) -> Dict[str, any]:
     Returns:
         Dict with quarterly financial metrics
     """
+    import os
+    import pickle
+    from pathlib import Path
+    from datetime import timedelta
+
+    cache_dir = Path("./data/cache/yfinance")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{ticker}_fundamentals.pkl"
+
+    # 1. Check Cache (7 day persistence for yfinance fallback)
+    if cache_path.exists():
+        mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
+        if datetime.now() - mtime < timedelta(days=7):
+            try:
+                with open(cache_path, 'rb') as f:
+                    return pickle.load(f)
+            except Exception:
+                pass
+
     try:
         stock = yf.Ticker(ticker)
 
@@ -151,6 +170,13 @@ def fetch_quarterly_financials(ticker: str) -> Dict[str, any]:
         # Try to get inventory breakdown (not always available in yfinance)
         # This is a limitation - detailed inventory breakdown often requires premium data
         result['inventory_breakdown_available'] = False
+
+        # Save to Cache
+        try:
+            with open(cache_path, 'wb') as f:
+                pickle.dump(result, f)
+        except Exception as e:
+            logger.warning(f"Failed to cache fundamentals for {ticker}: {e}")
 
         return result
 

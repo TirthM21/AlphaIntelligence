@@ -678,6 +678,7 @@ def score_buy_signal(
         'is_buy': is_buy,
         'score': round(final_score, 1),
         'phase': phase,
+        'current_price': current_price,
         'minervini_template_score': minervini['template_score'],
         'minervini_criteria_passed': minervini['criteria_passed'],
         'breakout_price': breakout_info.get('breakout_level') if breakout_info['is_breakout'] else None,
@@ -857,6 +858,7 @@ def score_sell_signal(
         'score': round(final_score, 1),
         'severity': severity,
         'phase': phase,
+        'current_price': current_price,
         'breakdown_level': details.get('breakdown_level'),
         'reasons': reasons,
         'details': details

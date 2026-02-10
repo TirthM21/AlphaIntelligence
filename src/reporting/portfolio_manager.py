@@ -124,7 +124,20 @@ class PortfolioManager:
         latest_file = self.report_dir / "latest_allocation_plan.csv"
         df.to_csv(output_file, index=False)
         df.to_csv(latest_file, index=False)
-        logger.info(f"Allocation plan saved to {output_file} and {latest_file}")
+        
+        # Save to SQL
+        sql_allocations = []
+        for a in allocations:
+            sql_allocations.append({
+                'ticker': a['Ticker'],
+                'score': a['Signal_Score'],
+                'price': a['Current_Price'],
+                'recommended_shares': a['Recommended_Shares'],
+                'est_cost': a['Est_Cost']
+            })
+        self.db.save_allocation_plan(sql_allocations)
+        
+        logger.info(f"Allocation plan saved to {output_file}, {latest_file}, and SQL database")
 
     def _generate_rebalance_actions(self, sell_signals: List[Dict]):
         """Generates a text file with suggested exit/rebalance actions."""
@@ -266,3 +279,73 @@ class PortfolioManager:
         output_file = self.report_dir / f"trade_tracker_{datetime.now().strftime('%Y%m%d')}.csv"
         df.to_csv(output_file, index=False)
         logger.info(f"Swing trade tracker CSV saved to {output_file} (Ready for Sheets import)")
+    def evaluate_portfolio(self):
+        """Standalone evaluation of current portfolio holdings."""
+        logger.info("Evaluating existing portfolio holdings...")
+        
+        # 1. Load holdings from SQL (source of truth for active fund)
+        data = self.db.get_full_portfolio_data()
+        holdings = data.get('holdings', [])
+        
+        if not holdings:
+            logger.info("No holdings found in database to evaluate.")
+            # Fallback to positions.json if SQL empty
+            if self.portfolio_path.exists():
+                with open(self.portfolio_path, 'r') as f:
+                    holdings = json.load(f)
+                    logger.info(f"Loaded {len(holdings)} holdings from {self.portfolio_path}")
+            else:
+                return
+
+        # 2. Update current prices and record performance
+        spy = yf.Ticker("SPY")
+        spy_price = spy.history(period="1d")['Close'].iloc[-1]
+        
+        updated_holdings = []
+        for h in holdings:
+            try:
+                ticker = h['ticker']
+                stock = yf.Ticker(ticker)
+                curr_price = stock.history(period="1d")['Close'].iloc[-1]
+                h['current_price'] = curr_price
+                updated_holdings.append(h)
+                
+                # Update SQL record price
+                session = self.db.Session()
+                pos = session.query(self.db.Base.metadata.tables['portfolio_holdings']).filter_by(ticker=ticker).first()
+                if pos:
+                    from sqlalchemy import update
+                    t = self.db.Base.metadata.tables['portfolio_holdings']
+                    stmt = update(t).where(t.c.ticker == ticker).values(current_price=curr_price, last_updated=datetime.utcnow())
+                    session.execute(stmt)
+                    session.commit()
+                session.close()
+            except Exception as e:
+                logger.warning(f"Failed to update price for {h['ticker']}: {e}")
+
+        # 3. Record daily performance snapshot to SQL
+        self.db.update_daily_performance(spy_price)
+        
+        # 4. Generate the usual reports
+        self.generate_reports([], []) # Empty signals for now as we are just evaluating existing pos
+        
+        logger.info("Portfolio evaluation complete and saved to SQL.")
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='Hedge Fund Portfolio Manager')
+    parser.add_argument('--evaluate', action='store_true', help='Evaluate current holdings and record performance')
+    args = parser.parse_args()
+    
+    manager = PortfolioManager()
+    if args.evaluate:
+        manager.evaluate_portfolio()
+    else:
+        # Default run: generate reports from latest signals if they exist
+        latest_signals_path = Path("./data/latest_market_signals.json")
+        if latest_signals_path.exists():
+            with open(latest_signals_path, 'r') as f:
+                data = json.load(f)
+                manager.generate_reports(data.get('buy_signals', []), data.get('sell_signals', []))
+        else:
+            logger.info("No latest signals found. Use --evaluate to just audit current holdings.")

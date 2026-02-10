@@ -38,12 +38,13 @@ from src.screening.benchmark import (
     should_generate_signals
 )
 from src.screening.signal_engine import score_buy_signal, score_sell_signal
+from src.data.fmp_fetcher import FMPFetcher
+from src.data.finnhub_fetcher import FinnhubFetcher
 from src.data.enhanced_fundamentals import EnhancedFundamentalsFetcher
 from src.reporting.newsletter_generator import NewsletterGenerator
 from src.reporting.portfolio_manager import PortfolioManager
 from src.notifications.email_notifier import EmailNotifier
 from src.database.db_manager import DBManager
-from src.data.fmp_fetcher import FMPFetcher
 from src.data.sec_fetcher import SECFetcher
 from src.ai.ai_agent import AIAgent
 from src.long_term.etf_universe import ETFUniverse
@@ -390,14 +391,17 @@ def main():
     parser.add_argument('--tickers', type=str, help='Comma-separated list of specific tickers (e.g. AAPL,MSFT,TSLA)')
     parser.add_argument('--test-mode', action='store_true', help='Test with 100 stocks')
     parser.add_argument('--min-price', type=float, default=5.0, help='Min price')
-    parser.add_argument('--min-volume', type=int, default=100000, help='Min volume')
+    parser.add_argument('--max-price', type=float, default=10000.0, help='Max price')
+    parser.add_argument('--min-volume', '--min-vol', type=int, default=100000, help='Min volume')
     parser.add_argument('--max-drawdown', type=float, default=0.70, help='Max 5y drawdown limit (0.7 = 70%)')
     parser.add_argument('--use-fmp', action='store_true', help='Use FMP for enhanced fundamentals on buy signals')
     parser.add_argument('--git-storage', action='store_true', help='Use Git-based storage for fundamentals (recommended)')
+    parser.add_argument('--ai', action='store_true', help='Enable AI analysis for top buy signals')
     parser.add_argument('--download-sec', action='store_true', help='Download SEC 10-Qs for top buy signals (requires sec-edgar-toolkit)')
     parser.add_argument('--send-email', action='store_true', help='Send newsletter via email (requires EMAIL_SENDER and EMAIL_PASSWORD env vars)')
     parser.add_argument('--diagnostics', action='store_true', help='Run diagnostic check for API keys and SEC access')
     parser.add_argument('--broad', action='store_true', help='Broad Scan: lower price ($2) and volume (20k) thresholds')
+    parser.add_argument('--slow-api', action='store_true', help='Use 5s rate limit for FMP and Finnhub APIs')
 
     args = parser.parse_args()
 
@@ -455,9 +459,18 @@ def main():
         logger.info("="*60)
         sys.exit(0)
 
-    # Initialize enhanced fundamentals fetcher
-    fundamentals_fetcher = EnhancedFundamentalsFetcher()
-    if args.use_fmp and fundamentals_fetcher.fmp_available:
+    # Initialize fetchers
+    fmp_fetcher = FMPFetcher()
+    finnhub_fetcher = FinnhubFetcher()
+    
+    # Apply slow-api limit if requested
+    if args.slow_api:
+        logger.info("🐢 Slow API mode enabled: Setting 5s delay for FMP and Finnhub")
+        fmp_fetcher.rate_limit_delay = 5.0
+        finnhub_fetcher.min_delay = 5.0
+        
+    enhanced_fetcher = EnhancedFundamentalsFetcher(fmp_fetcher=fmp_fetcher, finnhub_fetcher=finnhub_fetcher)
+    if args.use_fmp and enhanced_fetcher.fmp_available:
         logger.info("FMP enabled - will use for buy signal fundamentals (DCF + Insider + Margins)")
     elif args.use_fmp:
         logger.warning("--use-fmp specified but FMP_API_KEY not set. Using yfinance only.")
@@ -512,6 +525,7 @@ def main():
             tickers,
             resume=args.resume,
             min_price=args.min_price,
+            max_price=args.max_price,
             min_volume=args.min_volume
         )
 
@@ -556,17 +570,30 @@ def main():
                 # 1. SEC Confirmation
                 sec_status = "Not requested"
                 if args.download_sec:
-                    sec_status = fundamentals_fetcher.download_sec_filing(ticker, '10-Q')
+                    sec_status = enhanced_fetcher.download_sec_filing(ticker, '10-Q')
                 
                 # 2. AI Assessment
                 ai_commentary = None
-                if ai_agent.api_key:
+                if args.ai and ai_agent.api_key:
+                    # Enrich with Finnhub data if available
+                    finnhub_data = {}
+                    if finnhub_fetcher.api_key:
+                        sentiment = finnhub_fetcher.get_news_sentiment(ticker)
+                        insider = finnhub_fetcher.get_insider_sentiment(ticker)
+                        targets = finnhub_fetcher.get_price_target(ticker)
+                        if sentiment: finnhub_data['news_sentiment'] = sentiment
+                        if insider: finnhub_data['insider_sentiment'] = insider[0] if insider else None
+                        if targets: finnhub_data['analyst_targets'] = targets
+                    
                     ai_commentary = ai_agent.generate_commentary(ticker, {
                         "price": analysis['current_price'],
                         "technical_score": signal['score'],
-                        "fundamentals": analysis.get('quarterly_data', {})
+                        "reasons": signal['reasons'],
+                        "fundamentals": signal['details'].get('fundamental_analysis', {}),
+                        "finnhub_enrichment": finnhub_data
                     })
-
+                    signal['ai_commentary'] = ai_commentary
+                
                 # 3. Final Re-Score (The "Mixture")
                 final_signal = score_buy_signal(
                     ticker=ticker,

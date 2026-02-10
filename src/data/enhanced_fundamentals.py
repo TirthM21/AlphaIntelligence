@@ -12,6 +12,8 @@ Strategy:
 
 import logging
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
 from .sec_fetcher import SECFetcher
@@ -27,54 +29,143 @@ logger = logging.getLogger(__name__)
 class EnhancedFundamentalsFetcher:
     """Unified fundamentals fetcher using FMP + yfinance + SEC Edgar."""
 
-    def __init__(self):
-        """Initialize fetcher with FMP if API key available."""
-        self.fmp_available = False
-        self.fmp_fetcher = None
+    def __init__(self, fmp_fetcher: Optional[FMPFetcher] = None, finnhub_fetcher: Optional[any] = None):
+        """Initialize fetcher with FMP, Finnhub and SEC Edgar.
+        
+        Args:
+            fmp_fetcher: Optional pre-initialized FMPFetcher
+            finnhub_fetcher: Optional pre-initialized FinnhubFetcher
+        """
+        self.fmp_fetcher = fmp_fetcher
+        self.finnhub_fetcher = finnhub_fetcher
         self.sec_fetcher = SECFetcher()
-
-        # Check if FMP API key is available
-        fmp_api_key = os.getenv('FMP_API_KEY')
-        if fmp_api_key:
+        
+        # Auto-initialize FMP if not provided
+        if not self.fmp_fetcher:
+            fmp_api_key = os.getenv('FMP_API_KEY')
+            if fmp_api_key:
+                try:
+                    self.fmp_fetcher = FMPFetcher(api_key=fmp_api_key)
+                except Exception as e:
+                    logger.warning(f"FMP initialization failed: {e}")
+        
+        # Auto-initialize Finnhub if not provided
+        if not self.finnhub_fetcher:
+            from .finnhub_fetcher import FinnhubFetcher
             try:
-                self.fmp_fetcher = FMPFetcher(api_key=fmp_api_key)
-                self.fmp_available = True
-                logger.info("FMP available - will use for enhanced fundamentals")
+                self.finnhub_fetcher = FinnhubFetcher()
             except Exception as e:
-                logger.warning(f"FMP initialization failed: {e}. Using yfinance only.")
-        else:
-            logger.info("FMP_API_KEY not set - using yfinance only")
+                logger.warning(f"Finnhub initialization failed: {e}")
 
+        self.fmp_available = self.fmp_fetcher is not None and self.fmp_fetcher.api_key is not None
+        self.finnhub_available = self.finnhub_fetcher is not None and self.finnhub_fetcher.api_key is not None
+        
         self.fmp_call_count = 0
         self.fmp_daily_limit = 250
+        
+        # Combined Standardized Cache
+        self.cache_dir = Path("./data/cache/fundamentals_standardized")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        if self.fmp_available:
+            logger.info("EnhancedFundamentals: FMP source active")
+        if self.finnhub_available:
+            logger.info("EnhancedFundamentals: Finnhub source active")
 
     def fetch_quarterly_data(
         self,
         ticker: str,
         use_fmp: bool = True
     ) -> Dict[str, any]:
-        """Fetch quarterly financial data from FMP (primary) or yfinance (fallback)."""
-        # 1. Try FMP First (if available and not at limit)
-        if self.fmp_available and self.fmp_fetcher:
+        """Fetch quarterly financial data following priority: FMP -> Finnhub -> yfinance.
+        Ensures standardized data is persisted in a local cache for future runs.
+        """
+        import pickle
+        from datetime import timedelta
+        
+        cache_path = self.cache_dir / f"{ticker}_standard.pkl"
+        
+        # 1. Check Standardized Cache first (to save API calls/time)
+        if cache_path.exists():
+            mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
+            # Use data for 24h if it was from FMP/premium source
+            if datetime.now() - mtime < timedelta(hours=24):
+                try:
+                    with open(cache_path, 'rb') as f:
+                        cached_data = pickle.load(f)
+                        if cached_data:
+                            logger.debug(f"Cache Hit [{ticker}]: Returning standardized data ({cached_data.get('data_source')})")
+                            return cached_data
+                except Exception:
+                    pass
+
+        result = None
+        
+        # 2. Try FMP (Priority 1)
+        if use_fmp and self.fmp_available and self.fmp_fetcher:
             if self.fmp_call_count < self.fmp_daily_limit:
                 try:
-                    logger.info(f"FMP [{ticker}]: Attempting fetch...")
+                    logger.info(f"FMP [{ticker}]: Fetching premium fundamentals...")
                     data = self.fmp_fetcher.fetch_comprehensive_fundamentals(ticker, include_advanced=True)
-                    self.fmp_call_count += 6
-                    
+                    self.fmp_call_count += 4
                     if data and data.get('income_statement'):
-                        logger.info(f"✅ FMP [{ticker}]: Data received (Net Margin: {data['income_statement'][0].get('netIncomeRatio', 0)*100:.1f}%)")
-                        return self._convert_fmp_to_standard(data)
-                    else:
-                        logger.warning(f"⚠️ FMP [{ticker}]: Empty response, falling back to yfinance")
+                        result = self._convert_fmp_to_standard(data)
                 except Exception as e:
-                    logger.warning(f"❌ FMP [{ticker}]: Error {e}, falling back to yfinance")
-            else:
-                logger.warning(f"⏹️ FMP limit reached ({self.fmp_call_count}/{self.fmp_daily_limit})")
+                    logger.warning(f"FMP [{ticker}] failed: {e}")
 
-        # 2. Fall back to yfinance
-        logger.info(f"🔄 YFINANCE [{ticker}]: Fetching standard fundamentals...")
-        return fetch_quarterly_financials(ticker)
+        # 3. Try Finnhub (Priority 2)
+        if not result and self.finnhub_available and self.finnhub_fetcher:
+            try:
+                logger.info(f"FINNHUB [{ticker}]: Attempting secondary fetch...")
+                basic = self.finnhub_fetcher.get_basic_financials(ticker)
+                if basic and basic.get('metric'):
+                    result = self._convert_finnhub_to_standard(basic, ticker)
+            except Exception as e:
+                logger.warning(f"Finnhub [{ticker}] failed: {e}")
+
+        # 4. Try yfinance (Priority 3)
+        if not result:
+            logger.info(f"🔄 YFINANCE [{ticker}]: Final fallback fetch...")
+            result = fetch_quarterly_financials(ticker)
+
+        # Persistence: Save the best available standardized result
+        if result:
+            try:
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(result, f)
+            except Exception as e:
+                logger.warning(f"Failed to persist standardized fundamentals for {ticker}: {e}")
+
+        return result
+
+    def _convert_finnhub_to_standard(self, fh_data: Dict, ticker: str) -> Dict[str, any]:
+        """Convert Finnhub metrics to standard format."""
+        metrics = fh_data.get('metric', {})
+        series = fh_data.get('series', {}).get('annual', {})
+        
+        # Map Finnhub metrics to our standard keys
+        result = {
+            'ticker': ticker,
+            'fetch_date': datetime.now().strftime('%Y-%m-%d'),
+            'data_source': 'finnhub',
+            'latest_revenue': metrics.get('revenuePerShareTTM', 0) * metrics.get('sharesOutstanding', 0) if metrics.get('revenuePerShareTTM') else 0,
+            'net_margin': metrics.get('netProfitMarginTTM', 0),
+            'operating_margin': metrics.get('operatingMarginTTM', 0),
+            'gross_margin': metrics.get('grossMarginTTM', 0),
+            'latest_eps': metrics.get('epsTTM', 0),
+            'inventory_to_sales_ratio': metrics.get('inventoryTurnoverTTM', 0) # approximation if needed
+        }
+        
+        # Handle historical growth from series if available
+        if 'salesPerShare' in series:
+            hist = series['salesPerShare']
+            if len(hist) >= 2:
+                curr = hist[0].get('v', 0)
+                prev = hist[1].get('v', 0)
+                if prev:
+                    result['revenue_qoq_change'] = ((curr - prev) / prev * 100)
+                    
+        return result
 
     def download_sec_filing(self, ticker: str, filing_type: str = '10-Q') -> str:
         """Download latest SEC filing."""

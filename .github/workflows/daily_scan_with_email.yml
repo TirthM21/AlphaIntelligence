@@ -39,37 +39,33 @@ jobs:
           mkdir -p data/daily_scans
           mkdir -p data/newsletters
           mkdir -p .cache
+          touch .env
+          echo "FMP_API_KEY=${{ secrets.FMP_API_KEY }}" >> .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+          echo "FREE_LLM_API_KEY=${{ secrets.FREE_LLM_API_KEY }}" >> .env
+          echo "EMAIL_SMTP_SERVER=${{ secrets.EMAIL_SMTP_SERVER }}" >> .env
+          echo "EMAIL_SMTP_PORT=${{ secrets.EMAIL_SMTP_PORT }}" >> .env
+          echo "EMAIL_SENDER=${{ secrets.EMAIL_SENDER }}" >> .env
+          echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> .env
+          echo "EMAIL_RECIPIENT=${{ secrets.EMAIL_RECIPIENT }}" >> .env
+          echo "FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }}" >> .env
 
       - name: 🏥 Heartbeat / Diagnostic
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
-          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         run: |
           python run_optimized_scan.py --diagnostics
 
       - name: 🚀 Run Full Market Scan
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
-          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
-          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: |
           TEST_FLAG=""
           if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then TEST_FLAG="--test-mode"; fi
-          python run_optimized_scan.py --aggressive --use-fmp --git-storage --ai --send-email $TEST_FLAG
+          # Strict Hierarchy: FMP -> Finnhub -> yf (automatic via EnhancedFetcher) -> SEC
+          python run_optimized_scan.py --workers 20 --min-price 5 --max-price 500 --min-vol 500000 --ai --use-fmp --download-sec --git-storage --send-email $TEST_FLAG
 
       - name: 💼 Evaluate Portfolio
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python evaluate_portfolio.py
+          python src/reporting/portfolio_manager.py --evaluate
 
       - name: 📤 Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -85,6 +81,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .cache/*.json || true
-          git add data/portfolio_evaluation.json || true
-          git commit -m "chore: persist automated scan data [skip ci]" || echo "No changes"
+          git add data/*.json || true
+          git add data/*.csv || true
+          git add data/daily_scans/latest_optimized_scan.txt || true
+          git commit -m "chore: persist automated scan data and reports [skip ci]" || echo "No changes"
           git push

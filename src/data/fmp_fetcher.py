@@ -57,6 +57,9 @@ class FMPFetcher:
         # Bandwidth tracking (30-day limit: 20 GB)
         self.bandwidth_used = 0
         self.bandwidth_limit = 20 * 1024 * 1024 * 1024  # 20 GB in bytes
+        
+        # Adjustable rate limit (user requested 5s for some APIs)
+        self.rate_limit_delay = 0.5 # Default 10 req/sec
 
         logger.info("FMPFetcher initialized")
 
@@ -178,8 +181,8 @@ class FMPFetcher:
 
             url = f"{self.base_url}/{endpoint}"
 
-            # Rate limiting - be respectful (10 req/sec)
-            time.sleep(0.1)
+            # Rate limiting - be respectful
+            time.sleep(self.rate_limit_delay)
 
             response = requests.get(url, params=params, timeout=10)
             

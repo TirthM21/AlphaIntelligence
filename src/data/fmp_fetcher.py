@@ -61,6 +61,9 @@ class FMPFetcher:
         # Adjustable rate limit (user requested 5s for some APIs)
         self.rate_limit_delay = 0.5 # Default 10 req/sec
 
+        # State tracking to abort if key is invalid
+        self.key_invalid = False
+
         logger.info("FMPFetcher initialized")
 
     def _get_cache_path(self, ticker: str, endpoint: str) -> Path:
@@ -131,7 +134,10 @@ class FMPFetcher:
             JSON response or None
         """
         if not self.api_key:
-            logger.error("Cannot fetch without API key")
+            return None
+        
+        if self.key_invalid:
+            # Quit early if we know the key is dead
             return None
 
         # 1. Check Disk Cache
@@ -186,6 +192,11 @@ class FMPFetcher:
 
             response = requests.get(url, params=params, timeout=10)
             
+            if response.status_code == 401:
+                logger.error(f"FMP API 401 Unauthorized: Invalid API Key. Disabling FMP for this session.")
+                self.key_invalid = True
+                return None
+
             if response.status_code == 403:
                 msg = response.json().get('Error Message', '') if response.text else 'Forbidden'
                 logger.error(f"FMP API 403 Error: {msg}. (Endpoint: {endpoint})")

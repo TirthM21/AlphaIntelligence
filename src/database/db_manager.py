@@ -316,7 +316,7 @@ class DBManager:
             
             return {
                 'holdings': [
-                    {'ticker': h.ticker, 'qty': h.quantity, 'avg_price': h.average_buy_price, 
+                    {'ticker': h.ticker, 'quantity': h.quantity, 'average_buy_price': h.average_buy_price, 
                      'current_price': h.current_price, 'sector': h.sector} for h in holdings
                 ],
                 'equity_curve': [

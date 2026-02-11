@@ -1,67 +1,57 @@
-import sys
-import os
+"""Unified CLI entrypoint for AlphaIntelligence workflows."""
+
+from __future__ import annotations
+
 import argparse
-import logging
-sys.path.append(os.getcwd())
-from src.analysis.position_manager import PositionManager
-from src.data.yfinance_positions import YFinancePositionFetcher
-from datetime import datetime
+import subprocess
+import sys
+from pathlib import Path
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
-def scan_daily():
-    print("Executing daily scan...")
-    # Wrap run_optimized_scan logic here
-    # For now, just a placeholder or call the script via subprocess if moving logic is too big
-    import subprocess
-    subprocess.run([sys.executable, "run_optimized_scan.py"], check=True)
+def _run_script(script_name: str, passthrough: list[str]) -> int:
+    script_path = Path.cwd() / script_name
+    if not script_path.exists():
+        print(f"Script not found: {script_name}")
+        return 2
+    cmd = [sys.executable, str(script_path), *passthrough]
+    return subprocess.call(cmd)
 
-def scan_quarterly():
-    print("Executing quarterly compounder scan...")
-    import subprocess
-    subprocess.run([sys.executable, "run_quarterly_compounder_scan.py"], check=True)
 
-def report_ai():
-    print("Generating AI report...")
-    import subprocess
-    subprocess.run([sys.executable, "run_ai_report.py"], check=True)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="alphaintel", description="AlphaIntelligence unified CLI")
+    sub = parser.add_subparsers(dest="command")
 
-def manage_positions_cli():
-    print("Managing positions...")
-    # Inline manage_positions.py logic could go here
-    import subprocess
-    subprocess.run([sys.executable, "manage_positions.py"], check=True)
+    daily = sub.add_parser("scan-daily", help="Run daily momentum scan")
+    daily.add_argument("args", nargs=argparse.REMAINDER)
 
-def main():
-    parser = argparse.ArgumentParser(description="AlphaIntelligence CLI")
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    quarterly = sub.add_parser("scan-quarterly", help="Run quarterly compounder scan")
+    quarterly.add_argument("args", nargs=argparse.REMAINDER)
 
-    # alphaintel scan-daily
-    subparsers.add_parser("scan-daily", help="Run the daily momentum market scan")
+    ai = sub.add_parser("report-ai", help="Generate AI deep-dive report")
+    ai.add_argument("args", nargs=argparse.REMAINDER)
 
-    # alphaintel scan-quarterly
-    subparsers.add_parser("scan-quarterly", help="Run the quarterly compounder scan")
+    backtest = sub.add_parser("backtest", help="Run strategy backtest")
+    backtest.add_argument("args", nargs=argparse.REMAINDER)
 
-    # alphaintel report-ai
-    subparsers.add_parser("report-ai", help="Generate AI deep-dive report")
-    
-    # alphaintel manage-positions
-    subparsers.add_parser("manage-positions", help="Manage portfolio positions")
+    return parser
 
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     if args.command == "scan-daily":
-        scan_daily()
-    elif args.command == "scan-quarterly":
-        scan_quarterly()
-    elif args.command == "report-ai":
-        report_ai()
-    elif args.command == "manage-positions":
-        manage_positions_cli()
-    else:
-        parser.print_help()
+        return _run_script("run_optimized_scan.py", args.args)
+    if args.command == "scan-quarterly":
+        return _run_script("run_quarterly_compounder_scan.py", args.args)
+    if args.command == "report-ai":
+        return _run_script("run_ai_report.py", args.args)
+    if args.command == "backtest":
+        return _run_script("run_backtest.py", args.args)
+
+    parser.print_help()
+    return 1
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

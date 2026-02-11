@@ -1,56 +1,61 @@
-from dataclasses import dataclass
+"""Stable payload schemas for scanner and portfolio outputs."""
+
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 
 @dataclass
-class PriceHistorySchema:
-    """Schema for historical price data."""
+class DailySignal:
     ticker: str
-    date: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-    
-@dataclass
-class FundamentalSchema:
-    """Schema for fundamental data."""
-    ticker: str
-    fetch_date: datetime
-    market_cap: Optional[float]
-    pe_ratio: Optional[float]
-    revenue_growth: Optional[float]
-    sector: str
-
-@dataclass
-class SignalSchema:
-    """Schema for a trading signal."""
-    ticker: str
-    signal_type: str # 'BUY' or 'SELL'
+    signal_type: str
     score: float
     phase: str
-    timestamp: datetime
-    reasons: List[str]
-    metadata: Dict[str, Any]
+    generated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    reasons: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ticker": self.ticker,
+            "signal_type": self.signal_type,
+            "score": self.score,
+            "phase": self.phase,
+            "generated_at": self.generated_at,
+            "reasons": self.reasons,
+        }
+
 
 @dataclass
-class PortfolioActionSchema:
-    """Schema for a recommended portfolio action."""
+class QuarterlyAllocation:
     ticker: str
-    action: str # 'BUY', 'SELL', 'HOLD', 'REDUCE', 'ADD'
-    quantity: Optional[int]
-    price: Optional[float]
-    reason: str
-    timestamp: datetime
+    asset_type: str
+    target_weight: float
+    rationale: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ticker": self.ticker,
+            "asset_type": self.asset_type,
+            "target_weight": self.target_weight,
+            "rationale": self.rationale,
+        }
+
 
 @dataclass
-class ScanSummarySchema:
-    """Schema for a daily scan summary."""
-    scan_date: datetime
-    total_scanned: int
+class ScanSummary:
+    total_processed: int
+    total_analyzed: int
     buy_signals: int
     sell_signals: int
-    top_buys: List[SignalSchema]
-    top_sells: List[SignalSchema]
-    market_breadth: Dict[str, float]
+    runtime_seconds: float
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_processed": self.total_processed,
+            "total_analyzed": self.total_analyzed,
+            "buy_signals": self.buy_signals,
+            "sell_signals": self.sell_signals,
+            "runtime_seconds": self.runtime_seconds,
+            "metadata": self.metadata or {},
+        }

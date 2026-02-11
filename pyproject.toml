@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alphaintelligence"
+version = "0.1.0"
+description = "AlphaIntelligence unified CLI"
+requires-python = ">=3.10"
+
+[project.scripts]
+alphaintel = "src.cli:main"

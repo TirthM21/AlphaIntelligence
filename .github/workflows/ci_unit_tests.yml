@@ -1,0 +1,37 @@
+name: ✅ CI Unit Tests
+
+on:
+  pull_request:
+  push:
+    branches: [ main, work ]
+
+concurrency:
+  group: ci-unit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run unit tests
+        run: pytest -q tests
+
+      - name: Compile check
+        run: python -m compileall src

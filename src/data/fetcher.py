@@ -51,7 +51,6 @@ class YahooFinanceFetcher:
         retry_delay: int = 2
     ) -> None:
         """Initialize the YahooFinanceFetcher.
-
         Args:
             cache_dir: Directory path for caching data. Created if it doesn't exist.
             cache_expiry_hours: Hours before cached data expires.

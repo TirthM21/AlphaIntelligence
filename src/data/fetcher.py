@@ -247,6 +247,7 @@ class YahooFinanceFetcher:
                      1h, 1d, 5d, 1wk, 1mo, 3mo. Default is '1d'.
 
         Returns:
+            DataFrame with columns: Open, High, Low, Close, Volume, Date. The DataFrame retains a DatetimeIndex and also includes Date as an explicit column.
             DataFrame with columns: Date, Open, High, Low, Close, Volume.
             - Date column is added explicitly.
             - Index is also kept as DatetimeIndex for compatibility.
@@ -290,7 +291,7 @@ class YahooFinanceFetcher:
                 logger.warning(f"{ticker}: yfinance returned non-DatetimeIndex: {type(hist.index)}")
                 return pd.DataFrame()
 
-            # Select only OHLCV columns (no 'Date' column - it's the index)
+            # Select only OHLCV columns and expose Date as an explicit column
             available_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             hist = hist[[col for col in available_cols if col in hist.columns]]
 

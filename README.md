@@ -31,7 +31,7 @@ Our framework bridges two worlds: the **Daily Momentum Hunter** and the **Quarte
 ---
 
 ## 📂 Core Documentation
-To keep the workspace clean, we maintain four primary reference files:
+To keep the workspace clean, we maintain core reference files:
 
 1.  **`README.md`**: Mission statement and landing page.
 2.  **`SYSTEM_OVERVIEW.md`**: Technical architecture, module breakdown, and developer reference.
@@ -39,6 +39,7 @@ To keep the workspace clean, we maintain four primary reference files:
 4.  **`SIMPLE_TRADE_TRACKER.md`**: The essential Google Sheets template for tracking your market edge.
 5.  **`CODEBASE_DOCUMENTATION.md`**: Full repository documentation with architecture, module map, operations, and extension guidance.
 6.  **`BUSINESS_READINESS_PLAN.md`**: Productization roadmap and commercialization recommendations to make the platform sellable.
+7.  **`FEATURE_BACKLOG_CODEWISE.md`**: Prioritized code-level features to implement next (files to add/change).
 
 ---
 

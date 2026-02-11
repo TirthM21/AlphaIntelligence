@@ -48,10 +48,9 @@ class YahooFinanceFetcher:
         cache_dir: str = "./data/cache",
         cache_expiry_hours: int = 24,
         max_retries: int = 3,
-        retry_delay: int = 5
+        retry_delay: int = 2
     ) -> None:
         """Initialize the YahooFinanceFetcher.
-
         Args:
             cache_dir: Directory path for caching data. Created if it doesn't exist.
             cache_expiry_hours: Hours before cached data expires.
@@ -248,7 +247,9 @@ class YahooFinanceFetcher:
                      1h, 1d, 5d, 1wk, 1mo, 3mo. Default is '1d'.
 
         Returns:
-            DataFrame with columns: Date (index), Open, High, Low, Close, Volume.
+            DataFrame with columns: Date, Open, High, Low, Close, Volume.
+            - Date column is added explicitly.
+            - Index is also kept as DatetimeIndex for compatibility.
             Returns empty DataFrame on failure.
 
         Example:
@@ -292,6 +293,10 @@ class YahooFinanceFetcher:
             # Select only OHLCV columns (no 'Date' column - it's the index)
             available_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             hist = hist[[col for col in available_cols if col in hist.columns]]
+
+            # Explicitly add Date column from index for standardization
+            if 'Date' not in hist.columns:
+                hist = hist.assign(Date=hist.index)
 
             # Cache the results
             self._save_to_cache(hist, cache_path)

@@ -37,6 +37,8 @@ To keep the workspace clean, we maintain four primary reference files:
 2.  **`SYSTEM_OVERVIEW.md`**: Technical architecture, module breakdown, and developer reference.
 3.  **`FMP_STABLE_API.md`**: Master reference for Financial Modeling Prep (FMP) Stable API integration.
 4.  **`SIMPLE_TRADE_TRACKER.md`**: The essential Google Sheets template for tracking your market edge.
+5.  **`CODEBASE_DOCUMENTATION.md`**: Full repository documentation with architecture, module map, operations, and extension guidance.
+6.  **`BUSINESS_READINESS_PLAN.md`**: Productization roadmap and commercialization recommendations to make the platform sellable.
 
 ---
 

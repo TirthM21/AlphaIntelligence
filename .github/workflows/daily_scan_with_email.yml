@@ -71,6 +71,13 @@ jobs:
           # Strict Hierarchy: FMP -> Finnhub -> yf (automatic via EnhancedFetcher) -> SEC
           python run_optimized_scan.py --workers 20 --min-price 5 --max-price 500 --min-vol 500000 --ai --use-fmp --download-sec --git-storage --send-email $TEST_FLAG
 
+      - name: 🔬 Generate AI Executive Brief
+        env:
+          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
+        run: |
+          python run_ai_report.py
+
+
       - name: 💼 Evaluate Portfolio
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -82,6 +89,14 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python -m src.analysis.position_manager --csv
+
+      - name: 📝 Run Automated Position Report
+        run: |
+          python automated_position_report.py
+
+      - name: 🔍 Run Deep Portfolio Evaluation
+        run: |
+          python evaluate_portfolio.py
 
       - name: 📤 Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -101,6 +116,7 @@ jobs:
           git add data/fundamentals_cache/*.json || true
           git add data/*.json || true
           git add data/*.csv || true
+          git add data/position_reports/*.txt || true
           git add data/daily_scans/latest_optimized_scan.txt || true
           git commit -m "chore: persist automated scan data and reports [skip ci]" || echo "No changes"
           git push

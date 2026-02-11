@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import yfinance as yf
 
-from ..database.db_manager import DBManager
+from ..database.db_manager import DBManager, PortfolioHolding
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ class PortfolioManager:
 
         # 2. Update current prices and record performance
         spy = yf.Ticker("SPY")
-        spy_price = spy.history(period="1d")['Close'].iloc[-1]
+        spy_price = float(spy.history(period="1d")['Close'].iloc[-1])
         
         updated_holdings = []
         for h in holdings:
@@ -312,12 +312,10 @@ class PortfolioManager:
                 
                 # Update SQL record price
                 session = self.db.Session()
-                pos = session.query(self.db.Base.metadata.tables['portfolio_holdings']).filter_by(ticker=ticker).first()
+                pos = session.query(PortfolioHolding).filter_by(ticker=ticker).first()
                 if pos:
-                    from sqlalchemy import update
-                    t = self.db.Base.metadata.tables['portfolio_holdings']
-                    stmt = update(t).where(t.c.ticker == ticker).values(current_price=curr_price, last_updated=datetime.utcnow())
-                    session.execute(stmt)
+                    pos.current_price = float(curr_price)
+                    pos.last_updated = datetime.utcnow()
                     session.commit()
                 session.close()
             except Exception as e:

@@ -83,6 +83,8 @@ class DBManager:
     """Handles connection and operations for the Neon Postgres database."""
     
     def __init__(self, db_url: Optional[str] = None):
+        # Expose ORM base for backward compatibility with callers using self.db.Base
+        self.Base = Base
         self.db_url = db_url or os.getenv('DATABASE_URL')
         if not self.db_url:
             logger.warning("DATABASE_URL not set. Database features will be disabled.")
@@ -292,8 +294,8 @@ class DBManager:
                 date=datetime.utcnow(),
                 total_equity=total_equity,
                 cash_balance=cash,
-                benchmark_price=spy_price,
-                nav=total_equity / 1000.0 # Simulated NAV
+                benchmark_price=float(spy_price),
+                nav=float(total_equity / 1000.0) # Simulated NAV
             )
             session.add(perf)
             session.commit()

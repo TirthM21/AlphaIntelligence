@@ -61,12 +61,21 @@ jobs:
         run: |
           python -m src.analysis.position_manager --csv
 
+      - name: 📝 Run Automated Position Report
+        run: |
+          python automated_position_report.py
+
+      - name: 🔍 Run Deep Portfolio Evaluation
+        run: |
+          python evaluate_portfolio.py
+
       - name: 💾 Commit and Push Updates
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/portfolio_evaluation.json
+          git add data/*.json || true
           git add data/reports/*.csv || true
+          git add data/position_reports/*.txt || true
           git add .cache/*.json || true
           git commit -m "chore: nightly portfolio evaluation & position management [skip ci]" || echo "No changes to commit"
           git push

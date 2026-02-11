@@ -1,30 +1,23 @@
-"""Unit tests for data contracts schemas"""
-
-from datetime import datetime
 from src.contracts.schemas import PriceHistorySchema, SignalSchema
 
-def test_price_history_schema():
-    ph = PriceHistorySchema(
-        ticker="AAPL",
-        date=datetime(2023, 1, 1),
-        open=150.0,
-        high=155.0,
-        low=149.0,
-        close=152.0,
-        volume=1000000
-    )
-    assert ph.ticker == "AAPL"
-    assert ph.close == 152.0
 
-def test_signal_schema():
-    sig = SignalSchema(
-        ticker="MSFT",
-        signal_type="BUY",
-        score=85.5,
-        phase="2",
-        timestamp=datetime.now(),
-        reasons=["Breakout"],
-        metadata={}
+def test_price_history_schema_to_dict():
+    row = PriceHistorySchema(
+        ticker='AAPL',
+        date='2026-01-01',
+        open=100.0,
+        high=101.0,
+        low=99.5,
+        close=100.5,
+        volume=1234567,
     )
-    assert sig.score > 80
-    assert sig.signal_type == "BUY"
+    payload = row.to_dict()
+    assert payload['ticker'] == 'AAPL'
+    assert payload['close'] == 100.5
+
+
+def test_signal_schema_to_dict():
+    sig = SignalSchema(ticker='AAPL', signal='buy', score=80.0, phase='Phase 2', reasons=['trend'])
+    payload = sig.to_dict()
+    assert payload['signal'] == 'buy'
+    assert payload['score'] == 80.0

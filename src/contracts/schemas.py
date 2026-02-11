@@ -59,3 +59,51 @@ class ScanSummary:
             "runtime_seconds": self.runtime_seconds,
             "metadata": self.metadata or {},
         }
+
+
+@dataclass
+class PriceHistorySchema:
+    """Normalized OHLCV row contract used by fetchers and downstream analytics."""
+
+    ticker: str
+    date: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ticker": self.ticker,
+            "date": self.date,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+        }
+
+
+@dataclass
+class SignalSchema:
+    """Generic buy/sell signal contract with optional metadata."""
+
+    ticker: str
+    signal: str
+    score: float
+    phase: str
+    reasons: List[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ticker": self.ticker,
+            "signal": self.signal,
+            "score": self.score,
+            "phase": self.phase,
+            "reasons": self.reasons,
+            "generated_at": self.generated_at,
+            "metadata": self.metadata or {},
+        }

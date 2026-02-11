@@ -15,6 +15,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
+from time import perf_counter
+
+from src.observability.provider_metrics import ProviderMetrics
 
 from .sec_fetcher import SECFetcher
 from .fmp_fetcher import FMPFetcher
@@ -62,6 +65,7 @@ class EnhancedFundamentalsFetcher:
         
         self.fmp_call_count = 0
         self.fmp_daily_limit = 250
+        self.provider_metrics = ProviderMetrics()
         
         # Combined Standardized Cache
         self.cache_dir = Path("./data/cache/fundamentals_standardized")
@@ -104,29 +108,37 @@ class EnhancedFundamentalsFetcher:
         # 2. Try FMP (Priority 1)
         if use_fmp and self.fmp_available and self.fmp_fetcher:
             if self.fmp_call_count < self.fmp_daily_limit:
+                started = perf_counter()
                 try:
                     logger.info(f"FMP [{ticker}]: Fetching premium fundamentals...")
                     data = self.fmp_fetcher.fetch_comprehensive_fundamentals(ticker, include_advanced=True)
                     self.fmp_call_count += 4
                     if data and data.get('income_statement'):
                         result = self._convert_fmp_to_standard(data)
+                    self.provider_metrics.timed_call('fmp', bool(result), started)
                 except Exception as e:
+                    self.provider_metrics.timed_call('fmp', False, started)
                     logger.warning(f"FMP [{ticker}] failed: {e}")
 
         # 3. Try Finnhub (Priority 2)
         if not result and self.finnhub_available and self.finnhub_fetcher:
+            started = perf_counter()
             try:
                 logger.info(f"FINNHUB [{ticker}]: Attempting secondary fetch...")
                 basic = self.finnhub_fetcher.get_basic_financials(ticker)
                 if basic and basic.get('metric'):
                     result = self._convert_finnhub_to_standard(basic, ticker)
+                self.provider_metrics.timed_call('finnhub', bool(result), started)
             except Exception as e:
+                self.provider_metrics.timed_call('finnhub', False, started)
                 logger.warning(f"Finnhub [{ticker}] failed: {e}")
 
         # 4. Try yfinance (Priority 3)
         if not result:
             logger.info(f"🔄 YFINANCE [{ticker}]: Final fallback fetch...")
+            started = perf_counter()
             result = fetch_quarterly_financials(ticker)
+            self.provider_metrics.timed_call('yfinance', bool(result), started)
 
         # Persistence: Save the best available standardized result
         if result:
@@ -365,3 +377,8 @@ class EnhancedFundamentalsFetcher:
         """Reset FMP usage counter (call at start of new day)."""
         self.fmp_call_count = 0
         logger.info("FMP usage counter reset")
+
+
+    def get_provider_metrics(self) -> Dict[str, Dict[str, float]]:
+        """Return provider reliability telemetry for the current process run."""
+        return self.provider_metrics.summary()

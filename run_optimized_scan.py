@@ -393,7 +393,6 @@ def main():
     parser.add_argument('--min-price', type=float, default=5.0, help='Min price')
     parser.add_argument('--max-price', type=float, default=10000.0, help='Max price')
     parser.add_argument('--min-volume', '--min-vol', type=int, default=100000, help='Min volume')
-    parser.add_argument('--max-drawdown', type=float, default=0.70, help='Max 5y drawdown limit (0.7 = 70%)')
     parser.add_argument('--use-fmp', action='store_true', help='Use FMP for enhanced fundamentals on buy signals')
     parser.add_argument('--git-storage', action='store_true', help='Use Git-based storage for fundamentals (recommended)')
     parser.add_argument('--ai', action='store_true', help='Enable AI analysis for top buy signals')
@@ -418,8 +417,7 @@ def main():
     if args.broad:
         args.min_price = 2.0
         args.min_volume = 20000
-        args.max_drawdown = 0.85
-        logger.info("Broad Scan enabled: Price >$2, Volume >20k, Max Drawdown 85%")
+        logger.info("Broad Scan enabled: Price >$2, Volume >20k")
 
     effective_tps = args.workers / args.delay
     logger.info(f"Configuration: {args.workers} workers x {1/args.delay:.1f} TPS = ~{effective_tps:.1f} TPS effective")
@@ -503,8 +501,7 @@ def main():
             max_workers=args.workers,
             rate_limit_delay=args.delay,
             use_git_storage=args.git_storage,
-            use_fmp=args.use_fmp,
-            max_drawdown=args.max_drawdown
+            use_fmp=args.use_fmp
         )
 
         if args.git_storage:

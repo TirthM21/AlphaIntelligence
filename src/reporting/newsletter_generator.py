@@ -23,6 +23,31 @@ class NewsletterGenerator:
         self.ai_agent = AIAgent()
         self.portfolio_path = Path(portfolio_path)
 
+    @staticmethod
+    def _normalize_news_item(item: Dict, *, title_key: str = 'title', url_key: str = 'url', source_key: str = 'site', default_source: str = 'News') -> Dict:
+        """Normalize news payloads from multiple providers into one shape."""
+        title = (item.get(title_key) or item.get('headline') or 'No Title').strip()
+        url = item.get(url_key) or item.get('link') or '#'
+        source = item.get(source_key) or item.get('source') or default_source
+        return {'title': title, 'url': url, 'site': source}
+
+    @staticmethod
+    def _dedupe_news(items: List[Dict], max_items: int = 10) -> List[Dict]:
+        """Deduplicate news by URL/title while preserving input order."""
+        seen = set()
+        result = []
+        for raw in items:
+            title = (raw.get('title') or '').strip().lower()
+            url = (raw.get('url') or '#').strip().lower()
+            key = (title, url)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(raw)
+            if len(result) >= max_items:
+                break
+        return result
+
     def load_portfolio(self) -> List[Dict]:
         """Load user portfolio from positions.json."""
         if not self.portfolio_path.exists():
@@ -70,7 +95,7 @@ class NewsletterGenerator:
         finnhub_sentiment = {}
         if self.finnhub_fetcher.api_key:
             try:
-                finnhub_market_news = self.finnhub_fetcher.get_market_news(category="general")[:5]
+                finnhub_market_news = (self.finnhub_fetcher.get_market_news(category="general") or [])[:5]
                 # Get sentiment for top 5 portfolio stocks
                 for t in portfolio_tickers[:5]:
                     sentiment = self.finnhub_fetcher.get_news_sentiment(t)
@@ -86,12 +111,9 @@ class NewsletterGenerator:
                 # Use a few bellwether stocks for general news
                 for t in ['SPY', 'QQQ', 'DIA']:
                     stock = yf.Ticker(t)
-                    for n in stock.news[:2]:
-                        market_news.append({
-                            'title': n.get('title'),
-                            'url': n.get('link'),
-                            'site': 'Yahoo Finance'
-                        })
+                    for n in (stock.news or [])[:2]:
+                        market_news.append(self._normalize_news_item(n, url_key='link', source_key='publisher', default_source='Yahoo Finance'))
+                market_news = self._dedupe_news(market_news, max_items=8)
             except Exception as e:
                 logger.error(f"News fallback failed: {e}")
 
@@ -99,14 +121,23 @@ class NewsletterGenerator:
             try:
                 for t in portfolio_tickers[:5]: # Max 5 for speed
                     stock = yf.Ticker(t)
-                    for n in stock.news[:1]:
-                        portfolio_news.append({
-                            'title': n.get('title'),
-                            'symbol': t,
-                            'url': n.get('link')
-                        })
+                    for n in (stock.news or [])[:1]:
+                        normalized = self._normalize_news_item(n, url_key='link', source_key='publisher', default_source='Yahoo Finance')
+                        normalized['symbol'] = t
+                        portfolio_news.append(normalized)
+                portfolio_news = self._dedupe_news(portfolio_news, max_items=8)
             except Exception as e:
                 logger.error(f"Portfolio news fallback failed: {e}")
+
+        # Normalize and deduplicate all news streams for cleaner newsletter output
+        market_news = [self._normalize_news_item(n) for n in (market_news or [])]
+        market_news = self._dedupe_news(market_news, max_items=10)
+
+        finnhub_market_news = [self._normalize_news_item(n, title_key='headline', url_key='url', source_key='source', default_source='Finnhub') for n in (finnhub_market_news or [])]
+        finnhub_market_news = self._dedupe_news(finnhub_market_news, max_items=10)
+
+        portfolio_news = [self._normalize_news_item(n, default_source='Portfolio News') | ({'symbol': n.get('symbol')} if n.get('symbol') else {}) for n in (portfolio_news or [])]
+        portfolio_news = self._dedupe_news(portfolio_news, max_items=10)
 
         # 2. Build Content
         content = []
@@ -294,9 +325,9 @@ class NewsletterGenerator:
             if finnhub_market_news:
                 content.append("### 🗞️ Global Headlines (via Finnhub)")
                 for item in finnhub_market_news:
-                    title = item.get('headline', 'No Title')
+                    title = item.get('title', 'No Title')
                     url = item.get('url', '#')
-                    source = item.get('source', 'Finnhub')
+                    source = item.get('site', 'Finnhub')
                     content.append(f"- [{title}]({url}) - *{source}*")
                 content.append("")
 
@@ -312,6 +343,17 @@ class NewsletterGenerator:
                     sentiment_label = "🟢 Bullish" if score > 60 else "🔴 Bearish" if score < 40 else "🟡 Neutral"
                     content.append(f"| {t} | {sentiment_label} ({score:.1f}%) | {buzz} articles | - | {sector_avg:.1f}% |")
                 content.append("")
+
+        # Provider telemetry (helps diagnose data quality for newsletter readers)
+        provider_metrics = self.fetcher.get_provider_metrics()
+        if provider_metrics:
+            content.append("---")
+            content.append("## 🛠️ Data Provider Health")
+            content.append("| Provider | Attempts | Success Rate | Avg Latency (ms) |")
+            content.append("|----------|----------|--------------|------------------|")
+            for provider, stats in provider_metrics.items():
+                content.append(f"| {provider.upper()} | {int(stats.get('attempts', 0))} | {stats.get('success_rate', 0):.1f}% | {stats.get('avg_latency_ms', 0):.1f} |")
+            content.append("")
 
         content.append("")
         content.append("---")

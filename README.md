@@ -1,66 +1,131 @@
-# 🏦 AlphaIntelligence | Systematic Performance Engine
+# 🏦 AlphaIntelligence
 
-> **A high-fidelity systematic trading framework for identifying high-probability Stage 2 momentum breakouts and elite multi-year fundamental compounders.**
+**A systematic trading and portfolio intelligence platform for momentum screening, long-term compounder selection, and automated reporting.**
 
----
+AlphaIntelligence combines data engineering, quant scoring, and reporting automation into two production workflows:
 
-## 🚀 Vision
-AlphaIntelligence is more than a stock scanner; it is a **quantitative decision engine**. It eliminates EMOTIONAL trading by using rigorous institutional-grade logic:
-1.  **Technical Precision**: Minervini Trend Template & 4-Stage Market Analysis.
-2.  **Fundamental Dominance**: Deep-dive analytics into revenue quality, margin expansion, and inventory dynamics.
-3.  **Risk Management**: Automated position sizing, logical stop-loss placement, and R/R optimization.
-4.  **AI Integration**: Narrative generation and thesis synthesis via High-Performance LLMs.
+- **Daily Momentum Engine** (short-term swing opportunities)
+- **Quarterly Compounder Engine** (long-term ownership construction)
 
 ---
 
-## 🛠️ The Dual-System Architecture
-Our framework bridges two worlds: the **Daily Momentum Hunter** and the **Quarterly Compounder Architect**.
+## ✨ What you can do
 
-### ⚡ System 1: Short-Term Momentum (Daily)
-*   **Target**: 2-8 week holding periods.
-*   **Strategy**: Specific Entry Point Analysis (SEPA).
-*   **Entry**: Phase 2 momentum breakouts with high Relative Strength (RS).
-*   **Exit**: 50-SMA violations or Phase 3 distribution signals.
-
-### 🏛️ System 2: Long-Term Compounding (Quarterly)
-*   **Target**: 5-10 year wealth building.
-*   **Strategy**: Growth Quality & Capital Efficiency (60/25/15 Formula).
-*   **Focus**: Widening moats, pricing power, and institutional leadership.
-*   **Portfolio**: Thematic concentration with strict diversification rules.
+- Scan US equities for trend-template + phase-based momentum signals.
+- Score long-term compounders and thematic ETFs for quarterly allocation.
+- Generate AI-assisted investment commentary and newsletters.
+- Run position/risk/portfolio operations in scheduled workflows.
+- Backtest simple strategies and generate reproducible reports.
 
 ---
 
-## 📂 Core Documentation
-To keep the workspace clean, we maintain four primary reference files:
+## 🧱 Architecture at a glance
 
-1.  **`README.md`**: Mission statement and landing page.
-2.  **`SYSTEM_OVERVIEW.md`**: Technical architecture, module breakdown, and developer reference.
-3.  **`FMP_STABLE_API.md`**: Master reference for Financial Modeling Prep (FMP) Stable API integration.
-4.  **`SIMPLE_TRADE_TRACKER.md`**: The essential Google Sheets template for tracking your market edge.
+### Core domains
+
+- `src/data/` → data providers, fetching, fallback, cache, quality checks
+- `src/screening/` → indicators, phase logic, signal scoring, batch processing
+- `src/long_term/` → compounder models, ETF scoring, portfolio construction
+- `src/reporting/` → newsletters and portfolio reports
+- `src/notifications/` → email/slack and scheduler workflows
+- `src/contracts/` → typed output contracts for stable payloads
+- `src/observability/` → provider telemetry and reliability metrics
+- `src/backtest/` → strategy backtest engine, metrics, and report generation
 
 ---
 
-## 🏁 Quick Start
+## 🚀 Quick start
 
-### 1. Installation
-```powershell
-# Install core dependencies
+### 1) Install
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
-Create a `.env` file with your keys:
-```env
-FMP_API_KEY=your_key_here
-FREE_LLM_API_KEY=your_key_here
+(Optional, for CLI install):
+
+```bash
+pip install -e .
 ```
 
-### 3. Execution
-| Goal | Command |
-| :--- | :--- |
-| **Daily Market Scan** | `python run_optimized_scan.py --limit 50 --use-fmp` |
-| **Deep AI Insights** | `python run_ai_report.py` |
-| **System Diagnostics** | `python comprehensive_system_test.py` |
+### 2) Configure environment
+
+Create `.env` with at least:
+
+```env
+FMP_API_KEY=your_key_here
+FINNHUB_API_KEY=your_key_here
+FREE_LLM_API_KEY=your_key_here
+DATABASE_URL=your_db_url
+```
+
+### 3) Run workflows (script or CLI)
+
+| Goal | Script Command | CLI Command |
+| :--- | :--- | :--- |
+| Daily market scan | `python run_optimized_scan.py --limit 50 --use-fmp` | `alphaintel scan-daily -- --limit 50 --use-fmp` |
+| Quarterly compounder scan | `python run_quarterly_compounder_scan.py --log-level INFO` | `alphaintel scan-quarterly -- --log-level INFO` |
+| AI deep-dive report | `python run_ai_report.py` | `alphaintel report-ai` |
+| Backtest | `python run_backtest.py --ticker AAPL --period 5y` | `alphaintel backtest -- --ticker AAPL --period 5y` |
 
 ---
-# AlphaIntelligence
+
+## 📊 Backtesting
+
+A built-in SMA crossover backtest pipeline is now available:
+
+```bash
+alphaintel backtest -- --ticker NVDA --period 5y --short-window 50 --long-window 200
+```
+
+Outputs:
+
+- Console summary (return, drawdown, volatility, win rate)
+- Markdown report at `data/reports/backtest_report.md` (default)
+
+---
+
+## 🧪 Testing
+
+Run full test suite:
+
+```bash
+pytest -q tests
+```
+
+Compile sanity check:
+
+```bash
+python -m compileall src
+```
+
+---
+
+## 🤖 GitHub Actions workflows
+
+This repository includes automation for:
+
+- daily scan + newsletter
+- daily portfolio operations
+- quarterly compounder scan
+- data persistence jobs
+- CI/unit testing (added)
+
+See `.github/workflows/`.
+
+---
+
+## 📚 Documentation index
+
+- `SYSTEM_OVERVIEW.md` → technical overview
+- `CODEBASE_DOCUMENTATION.md` → file-by-file repo map
+- `BUSINESS_READINESS_PLAN.md` → commercialization hardening roadmap
+- `CODE_CHANGE_RECOMMENDATIONS.md` → immediate engineering cleanup plan
+- `FEATURE_BACKLOG_CODEWISE.md` → prioritized code feature backlog
+- `FMP_STABLE_API.md` → FMP integration reference
+
+---
+
+## ⚠️ Disclaimer
+
+AlphaIntelligence is research and decision-support software, not financial advice. Validate all outputs and apply your own risk controls.

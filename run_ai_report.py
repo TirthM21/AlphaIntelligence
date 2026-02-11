@@ -37,36 +37,10 @@ def generate_deep_dive():
     # We'll take the first 3000 chars of the scan to get stats and top buys
     ai_context = scan_content[:4000]
 
-    # 3. Call AI Agent
+    # 3. Generate report body (AI-first with deterministic fallback)
     ai = AIAgent()
-    if not ai.api_key:
-        logger.error("FREE_LLM_API_KEY not set. Cannot generate report.")
-        return
-
-    prompt = f"""
-    Act as a Head of Quantitative Strategy at a Tier-1 Hedge Fund (e.g., Renaissance Technologies or Two Sigma).
-    
-    I will provide you with the raw output of our proprietary market scanner (MoE v2.0). 
-    Your task is to synthesize this data into a "Quantum Intelligence Executive Brief".
-    
-    Data from Scan:
-    {ai_context}
-    
-    Structure your report as follows:
-    1. **Strategic Market Regime**: Analyze the SPY trend and market breadth. What is the overall "risk-on/off" status?
-    2. **The "Alpha" Picks**: Select the top 3 symbols from the scan. For each, provide a "Quant's Take" - why is the technical-fundamental mixture compelling for a long-duration hold?
-    3. **Structural Risks**: Identify any "red flags" mentioned (e.g., inventory building, margin contraction) and how to manage them.
-    4. **Final Verdict**: An authoritative concluding statement on the current opportunity set.
-    
-    Use a professional, institutional, and sharp tone.
-    """
-
     logger.info("Sending data to AI for deep-dive analysis...")
-    report = ai._call_ai(prompt)
-
-    if not report:
-        logger.error("AI failed to return a report.")
-        return
+    report = ai.generate_deep_dive_report(ai_context)
 
     # 4. Save Report
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

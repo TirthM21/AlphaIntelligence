@@ -17,15 +17,18 @@ class AIAgent:
     def __init__(self, api_key: Optional[str] = None):
         load_dotenv()
         # Primary key from user's snippet, fallback to env
-        self.api_key = api_key or os.getenv('FREE_LLM_API_KEY') or "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"
+        self.api_key = api_key or os.getenv('FREE_LLM_API_KEY')
         self.base_url = "https://integrate.api.nvidia.com/v1"
         self.model = "z-ai/glm4.7"
+        self.request_timeout_seconds = int(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60"))
+        self.max_attempts = int(os.getenv("AI_MAX_ATTEMPTS", "2"))
         
         self.client = None
         if self.api_key:
             self.client = OpenAI(
                 base_url=self.base_url,
-                api_key=self.api_key
+                api_key=self.api_key,
+                timeout=self.request_timeout_seconds
             )
             logger.info(f"AIAgent initialized using NVIDIA NIM with model {self.model}")
         else:
@@ -83,54 +86,68 @@ class AIAgent:
         enhanced = self._call_ai(prompt)
         return enhanced if enhanced else newsletter_md
 
+
+    def generate_deep_dive_report(self, scan_context: str) -> str:
+        """Generate deep-dive report body with deterministic fallback if AI is unavailable."""
+        prompt = f"""
+        Act as a Head of Quantitative Strategy at a Tier-1 Hedge Fund.
+
+        Data from Scan:
+        {scan_context}
+
+        Structure your report as follows:
+        1. Strategic Market Regime
+        2. Top 3 Alpha Picks
+        3. Structural Risks
+        4. Final Verdict
+        """
+        report = self._call_ai(prompt)
+        if report:
+            return report
+
+        return (
+            "## Strategic Market Regime\n"
+            "AI endpoint unavailable (timeout/5xx). Use scanner breadth + SPY trend section as primary regime signal.\n\n"
+            "## Top Alpha Picks\n"
+            "Select highest-score Phase 2 names from latest scan and validate with fundamentals + volume confirmation.\n\n"
+            "## Structural Risks\n"
+            "Watch for margin contraction, inventory build, and broad-market distribution signals.\n\n"
+            "## Final Verdict\n"
+            "Maintain selective risk-on posture only where technical trend and fundamental momentum align."
+        )
+
     def _call_ai(self, prompt: str) -> Optional[str]:
-        """Call NVIDIA NIM API with thinking enabled."""
+        """Call NVIDIA NIM API with bounded retries and timeout."""
         if not self.client:
             return None
 
-        try:
-            # Using the stream and reasoning logic as requested by user
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"content": prompt, "role": "user"}],
-                temperature=0.7,
-                top_p=1,
-                max_tokens=4096,
-                extra_body={
-                    "chat_template_kwargs": {
-                        "enable_thinking": True, 
-                        "clear_thinking": False
-                    }
-                },
-                stream=True
-            )
+        last_error = None
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"content": prompt, "role": "user"}],
+                    temperature=0.7,
+                    top_p=1,
+                    max_tokens=4096,
+                    extra_body={
+                        "chat_template_kwargs": {
+                            "enable_thinking": True,
+                            "clear_thinking": False
+                        }
+                    },
+                    stream=False,
+                    timeout=self.request_timeout_seconds,
+                )
+                if not response or not response.choices:
+                    return None
+                content = response.choices[0].message.content
+                return content.strip() if content else None
+            except Exception as e:
+                last_error = e
+                logger.warning(f"AI attempt {attempt}/{self.max_attempts} failed: {e}")
+                if attempt < self.max_attempts:
+                    time.sleep(1.5 * attempt)
 
-            full_content = ""
-            reasoning_content = ""
-
-            for chunk in completion:
-                if not getattr(chunk, "choices", None):
-                    continue
-                if len(chunk.choices) == 0 or getattr(chunk.choices[0], "delta", None) is None:
-                    continue
-                
-                delta = chunk.choices[0].delta
-                
-                # Capture reasoning content (thinking)
-                reasoning = getattr(delta, "reasoning_content", None)
-                if reasoning:
-                    reasoning_content += reasoning
-                
-                # Capture final output
-                content = getattr(delta, "content", None)
-                if content is not None:
-                    full_content += content
-
-            if reasoning_content:
-                logger.info(f"AI Thinking Process: {reasoning_content[:200]}...")
-
-            return full_content.strip() if full_content else None
-            
-        except Exception as e:
-            logger.error(f"AI Generation failed: {e}")
-            return None
+        logger.error(f"AI Generation failed after {self.max_attempts} attempts: {last_error}")
+        return None

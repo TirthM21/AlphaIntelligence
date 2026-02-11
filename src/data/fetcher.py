@@ -48,7 +48,7 @@ class YahooFinanceFetcher:
         cache_dir: str = "./data/cache",
         cache_expiry_hours: int = 24,
         max_retries: int = 3,
-        retry_delay: int = 5
+        retry_delay: int = 2
     ) -> None:
         """Initialize the YahooFinanceFetcher.
 
@@ -248,7 +248,7 @@ class YahooFinanceFetcher:
                      1h, 1d, 5d, 1wk, 1mo, 3mo. Default is '1d'.
 
         Returns:
-            DataFrame with columns: Date (index), Open, High, Low, Close, Volume.
+            DataFrame with columns: Open, High, Low, Close, Volume, Date. The DataFrame retains a DatetimeIndex and also includes Date as an explicit column.
             Returns empty DataFrame on failure.
 
         Example:
@@ -289,9 +289,14 @@ class YahooFinanceFetcher:
                 logger.warning(f"{ticker}: yfinance returned non-DatetimeIndex: {type(hist.index)}")
                 return pd.DataFrame()
 
-            # Select only OHLCV columns (no 'Date' column - it's the index)
+            # Select only OHLCV columns and expose Date as an explicit column
             available_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             hist = hist[[col for col in available_cols if col in hist.columns]]
+
+            # Keep DatetimeIndex for internal compatibility and add a Date column
+            # for downstream joins/exports and test contract stability.
+            hist.index.name = 'Date'
+            hist['Date'] = hist.index
 
             # Cache the results
             self._save_to_cache(hist, cache_path)

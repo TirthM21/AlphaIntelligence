@@ -2,105 +2,81 @@ name: 📈 Daily Market Scan & Newsletter
 
 on:
   schedule:
-    - cron: '0 22 * * 1-5' # 5:00 PM EST (Market Close)
+    - cron: '0 22 * * 1-5'
   workflow_dispatch:
     inputs:
       test_mode:
-        description: 'Run with 100 stocks for testing'
+        description: 'Run with smaller sample for testing'
         required: false
         default: false
         type: boolean
 
+concurrency:
+  group: daily-scan-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: write
-    
+
     steps:
-      - name: 🔍 Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 🐍 Set up Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: 📦 Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -e .
 
-      - name: 📦 Restore Data Cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            data/cache
-            data/fundamentals_cache
-          key: stock-data-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            stock-data-${{ runner.os }}-
-
-      - name: 📂 Setup Environment
+      - name: Setup directories
         run: |
-          mkdir -p data/daily_scans
-          mkdir -p data/newsletters
-          mkdir -p .cache
-          touch .env
-          echo "FMP_API_KEY=${{ secrets.FMP_API_KEY }}" >> .env
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
-          echo "FREE_LLM_API_KEY=${{ secrets.FREE_LLM_API_KEY }}" >> .env
-          echo "EMAIL_SMTP_SERVER=${{ secrets.EMAIL_SMTP_SERVER }}" >> .env
-          echo "EMAIL_SMTP_PORT=${{ secrets.EMAIL_SMTP_PORT }}" >> .env
-          echo "EMAIL_SENDER=${{ secrets.EMAIL_SENDER }}" >> .env
-          echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> .env
-          echo "EMAIL_RECIPIENT=${{ secrets.EMAIL_RECIPIENT }}" >> .env
-          echo "FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }}" >> .env
+          mkdir -p data/daily_scans data/newsletters data/reports .cache
 
-      - name: 🏥 Heartbeat / Diagnostic
+      - name: Run diagnostics
+        run: python comprehensive_system_test.py
+
+      - name: Run daily scan
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
         run: |
-          python run_optimized_scan.py --diagnostics
+          EXTRA=""
+          if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
+            EXTRA="--limit 100"
+          fi
+          alphaintel scan-daily -- --workers 10 --min-price 5 --max-price 500 --min-vol 500000 --use-fmp $EXTRA
 
-      - name: 🚀 Run Full Market Scan
-        run: |
-          TEST_FLAG=""
-          if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then TEST_FLAG="--test-mode"; fi
-          # Strict Hierarchy: FMP -> Finnhub -> yf (automatic via EnhancedFetcher) -> SEC
-          python run_optimized_scan.py --workers 20 --min-price 5 --max-price 500 --min-vol 500000 --ai --use-fmp --download-sec --git-storage --send-email $TEST_FLAG
-
-      - name: 💼 Evaluate Portfolio
+      - name: Evaluate portfolio
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          python -m src.reporting.portfolio_manager --evaluate
+        run: python -m src.reporting.portfolio_manager --evaluate
 
-      - name: 🛡️ Position Management (Stops & Exits)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          python -m src.analysis.position_manager --csv
-
-      - name: 📤 Upload Scan Results
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: daily-reports
+          name: daily-scan-artifacts
           path: |
             data/daily_scans/
             data/newsletters/
             data/reports/
             data/portfolio_evaluation.json
-
-      - name: 💾 Commit Cache & Progress
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .cache/*.json || true
-          git add data/fundamentals_cache/*.json || true
-          git add data/*.json || true
-          git add data/*.csv || true
-          git add data/daily_scans/latest_optimized_scan.txt || true
-          git commit -m "chore: persist automated scan data and reports [skip ci]" || echo "No changes"
-          git push
+          retention-days: 14

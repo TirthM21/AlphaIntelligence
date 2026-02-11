@@ -43,8 +43,7 @@ class OptimizedBatchProcessor:
         rate_limit_delay: float = 0.5,  # 0.5 sec = 2 TPS per worker
         batch_size: int = 100,
         use_git_storage: bool = False,
-        use_fmp: bool = False,
-        max_drawdown: float = 0.70  # Default to 70% drawdown limit
+        use_fmp: bool = False
     ):
         """Initialize optimized processor.
 
@@ -98,11 +97,8 @@ class OptimizedBatchProcessor:
         # Filter tracking
         self.filter_reasons = {}  # {reason: count}
 
-        self.max_drawdown = max_drawdown
-
         logger.info(f"OptimizedBatchProcessor initialized")
         logger.info(f"Workers: {max_workers}, Delay: {rate_limit_delay}s")
-        logger.info(f"Max Drawdown Limit: {max_drawdown*100:.0f}%")
         logger.info(f"Effective rate: ~{effective_tps:.1f} TPS")
 
     def load_progress(self) -> Optional[Dict]:
@@ -213,7 +209,7 @@ class OptimizedBatchProcessor:
 
             self.total_requests += 1
 
-            # Fetch price history (5 years to check drawdown, use last 1y for analysis)
+                        # Fetch price history (5 years for context, use last 1y for analysis)
             # Use self.fetcher (YahooFinanceFetcher) which has built-in disk caching
             long_hist = self.fetcher.fetch_price_history(ticker, period='5y')
             

@@ -21,7 +21,8 @@ requirements = [
     "OpenSSL", # pyopenssl
     "pyasn1",
     "fredapi",
-    "finnhub" # finnhub-python
+    "finnhub", # finnhub-python
+    "matplotlib"
 ]
 
 additional_checks = {

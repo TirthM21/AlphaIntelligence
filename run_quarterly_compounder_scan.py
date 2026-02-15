@@ -79,6 +79,9 @@ class QuarterlyCompounderScan:
             self.etf_engine = ETFEngine(universe=self.etf_universe)
             self.portfolio_constructor = PortfolioConstructor()
             self.report_generator = ReportGenerator()
+            
+            from src.reporting.newsletter_generator import NewsletterGenerator
+            self.newsletter_gen = NewsletterGenerator()
 
             logger.info("✓ All components initialized")
 
@@ -802,6 +805,27 @@ class QuarterlyCompounderScan:
             logger.info("Next Review: " + self.report_generator.get_next_review_date())
             logger.info("")
 
+            # STEP 9: GENERATE PROFESSIONAL NEWSLETTER
+            try:
+                logger.info("Generating professional quarterly newsletter...")
+                newsletter_path = self.newsletter_gen.generate_quarterly_newsletter(
+                    portfolio, top_stocks, top_etfs
+                )
+                logger.info(f"✓ Newsletter ready: {newsletter_path}")
+                
+                # Send email if requested
+                if hasattr(self, 'send_email') and self.send_email:
+                    from src.notifications.email_notifier import EmailNotifier
+                    notifier = EmailNotifier()
+                    if notifier.enabled:
+                        subject = f"🏛️ AlphaIntelligence Capital — Quarterly Compounder Report | Q{q} {year}"
+                        notifier.send_newsletter(newsletter_path, scan_report_path=csv_path, subject=subject)
+                        logger.info("✓ Newsletter sent via email")
+                    else:
+                        logger.warning("⚠ Email not configured - skipping send")
+            except Exception as e:
+                logger.warning(f"Newsletter generation failed (non-fatal): {e}")
+
             return True
 
         except Exception as e:
@@ -837,6 +861,11 @@ def main():
         default="data/quarterly_reports",
         help="Output directory for reports (default: data/quarterly_reports)",
     )
+    parser.add_argument(
+        "--send-email",
+        action="store_true",
+        help="Send newsletter via email",
+    )
 
     args = parser.parse_args()
 
@@ -847,6 +876,7 @@ def main():
         test_mode=args.test_mode,
         limit=args.limit,
     )
+    scanner.send_email = args.send_email
 
     success = scanner.run()
     sys.exit(0 if success else 1)

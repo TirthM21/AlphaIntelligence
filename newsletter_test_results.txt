@@ -1,0 +1,63 @@
+2026-02-15 23:13:37,067 - pyrate_limiter.limiter - INFO - Initializing default bucket(InMemoryBucket) with rates: [limit=10/1000]
+2026-02-15 23:13:41,034 - __main__ - INFO - Starting Daily Newsletter Verification...
+2026-02-15 23:13:42,702 - src.data.sec_fetcher - INFO - SECFetcher initialized (dir: data\sec_filings)
+2026-02-15 23:13:42,706 - src.data.fmp_fetcher - INFO - FMPFetcher initialized
+2026-02-15 23:13:42,706 - src.data.enhanced_fundamentals - INFO - FMP available - will use for enhanced fundamentals
+2026-02-15 23:13:43,846 - src.ai.ai_agent - INFO - AIAgent initialized using NVIDIA z-ai/glm4.7
+2026-02-15 23:13:43,847 - __main__ - INFO - Generating newsletter to data/newsletters/test_daily_output.md...
+2026-02-15 23:13:43,848 - src.reporting.newsletter_generator - INFO - Generating professional daily newsletter to data/newsletters/test_daily_output.md...
+2026-02-15 23:13:43,848 - src.reporting.newsletter_generator - INFO - Fetching Finnhub market news...
+2026-02-15 23:13:43,860 - src.reporting.newsletter_generator - INFO - Fetching Marketaux trending entities...
+2026-02-15 23:13:45,603 - src.data.marketaux_fetcher - ERROR - Marketaux trending fetch failed: 403 Client Error: Forbidden for url: https://api.marketaux.com/v1/entity/trending/aggregation?api_token=ElkIqFLhx7BrOtLorkT7uDD2jo0AgqHVZuxaFyQ6&countries=us&language=en&limit=10
+2026-02-15 23:13:45,607 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching sector-performance from API...
+2026-02-15 23:13:48,924 - src.data.fmp_fetcher - ERROR - Error fetching from FMP: 429 Client Error: Too Many Requests for url: https://financialmodelingprep.com/stable/sector-performance?apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-15 23:13:58,578 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:14:18,526 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:14:46,795 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:14:59,344 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:15:24,868 - src.reporting.newsletter_generator - INFO - Enhancing newsletter prose with AI...
+2026-02-15 23:15:25,108 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:15:56,271 - src.reporting.newsletter_generator - INFO - Professional Newsletter generated at data/newsletters/test_daily_output.md
+2026-02-15 23:15:56,552 - __main__ - INFO - \u2713 Newsletter successfully generated!
+2026-02-15 23:15:56,554 - __main__ - INFO - \u2713 Location: data/newsletters/test_daily_output.md
+2026-02-15 23:15:56,635 - __main__ - INFO - 
+--- PREVIEW ---
+
+2026-02-15 23:15:56,639 - __main__ - INFO - # \U0001f3e6 AlphaIntelligence Capital ù Daily Intelligence Brief | Sunday, February 15, 2026
+*Institutional-Grade Quantitative Research & Alpha Generation*
+
+## \U0001f4c8 Market Momentum & Regime
+### Market Cap Performance
+| Segment | Change | Status |
+|---------|--------|--------|
+| Large Cap | \U0001f7e2 **+0.07%** | Lagging |
+| Mid Cap | \U0001f7e2 **+0.96%** | Outperforming |
+| Small Cap | \U0001f7e2 **+1.32%** | Outperforming |
+
+![Benchmark Performance](cap_comparison.png)
+
+## \u26a1 Technical Radar: Volume Expansion
+*Detecting institutional accumulation via volume analysis*
+| Ticker | Volume Ratio | Breaking Out? | Context |
+|--------|--------------|---------------|---------|
+| **NVDA** | 1.8x | Tightening | Strong Accumulation |
+| **AMD** | 1.7x | Tightening | Strong Accumulation |
+
+## \U0001f4a1 Quantitative Inquiry
+### Established by Yal...
+2026-02-15 23:15:56,692 - __main__ - INFO - 
+Starting Quarterly Newsletter Verification...
+2026-02-15 23:15:58,714 - src.data.sec_fetcher - INFO - SECFetcher initialized (dir: data\sec_filings)
+2026-02-15 23:15:58,720 - src.data.fmp_fetcher - INFO - FMPFetcher initialized
+2026-02-15 23:15:58,720 - src.data.enhanced_fundamentals - INFO - FMP available - will use for enhanced fundamentals
+2026-02-15 23:16:00,255 - src.ai.ai_agent - INFO - AIAgent initialized using NVIDIA z-ai/glm4.7
+2026-02-15 23:16:00,291 - src.reporting.newsletter_generator - INFO - Generating professional quarterly newsletter to data/newsletters/quarterly/test_quarterly_output.md...
+2026-02-15 23:16:02,098 - src.data.marketaux_fetcher - ERROR - Marketaux trending fetch failed: 403 Client Error: Forbidden for url: https://api.marketaux.com/v1/entity/trending/aggregation?api_token=ElkIqFLhx7BrOtLorkT7uDD2jo0AgqHVZuxaFyQ6&countries=us&language=en&limit=10
+2026-02-15 23:16:02,114 - src.data.fmp_fetcher - INFO - FMP CACHE MISS: Fetching economic_calendar from API...
+2026-02-15 23:16:05,177 - src.data.fmp_fetcher - ERROR - Error fetching from FMP: 429 Client Error: Too Many Requests for url: https://financialmodelingprep.com/stable/economic_calendar?from=2026-02-15&to=2026-03-17&apikey=uJRMAVNt3aUN5FWBbrtwJCRkdzAgrjee
+2026-02-15 23:16:05,518 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:16:31,578 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:16:42,164 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:16:52,545 - src.reporting.newsletter_generator - INFO - Enhancing quarterly newsletter prose with AI...
+2026-02-15 23:16:52,727 - httpx - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-15 23:17:18,241 - __main__ - ERROR - \u274c Quarterly Test failed: [Errno 2] No such file or directory: 'data/newsletters/quarterly/test_quarterly_output.md'

@@ -1,0 +1,15 @@
+INFO:src.ai.ai_agent:AIAgent initialized using NVIDIA z-ai/glm4.7
+INFO:httpx:HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+Testing AIAgent High-Level Methods...
+
+[1/3] Testing generate_qotd()...
+QotD Result: {'question': 'What is the name of the seasonal anomaly in the stock market where stock prices, particularly those of small-cap companies, tend to rise in the month of January more than in any other month?', 'answer': 'The January Effect. This phenomenon is historically attributed to investors selling losing positions in December for tax-loss harvesting and reinvesting those funds in January.', 'insight': 'While historically significant, the January Effect has weakened in recent decades as market participants have anticipated the trade, arbitraging away the inefficiency. This serves as a crucial reminder that market anomalies rarely persist indefinitely once they become common knowledge.'}
+
+[2/3] Testing generate_commentary()...
+Commentary Result: NVDA demonstrates exceptional financial strength and relative performance with a composite score of 95.5, signaling a high-conviction technical setup. The breakout near $725.10 is further validated by a superior volume score of 9.0, indicating robust institutional backing for the current uptrend. Overall, this confluence of strong quantitative metrics and confirmed momentum underscores a compelling investment thesis for continued asset appreciation.
+
+[3/3] Testing enhance_newsletter() with small snippet...
+Enhanced Snippet: ## Market Update
+The SPDR S&P 500 ETF Trust (SPY) is up 1%, reflecting robust market sentiment. Breadth is positive, signaling broad-based participation across the tape.

@@ -144,12 +144,31 @@ class FMPFetcher:
         cache_key = f"{endpoint.replace('/', '_')}_{param_hash}"
         cache_path = self.cache_dir / f"{cache_key}.pkl"
 
-        # Cache duration: 24h for success, 12h for specific errors to avoid burning credits
+        # Cache duration: 30 days for fundamentals, 24h for news/others
         if cache_path.exists():
             try:
                 mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
-                # Success/Valid data duration
-                success_duration = timedelta(days=7) if not self._is_earnings_season() else timedelta(hours=24)
+                
+                # Determine cache duration based on endpoint type
+                fundamental_endpoints = {
+                    'income-statement', 'balance-sheet-statement', 'cash-flow-statement', 
+                    'key-metrics', 'discounted-cash-flow', 'financial-ratios'
+                }
+                is_fundamental = any(fe in endpoint for fe in fundamental_endpoints)
+                
+                news_endpoints = {'stock_news', 'press-releases'}
+                is_news = any(ne in endpoint for ne in news_endpoints)
+                
+                if is_fundamental:
+                    # User request: every month once only for fundamentals
+                    success_duration = timedelta(days=30)
+                elif is_news:
+                    # User request: news daily
+                    success_duration = timedelta(hours=24)
+                else:
+                    # Fallback success duration
+                    success_duration = timedelta(days=7) if not self._is_earnings_season() else timedelta(hours=12)
+                
                 # Fail/Error duration
                 error_duration = timedelta(hours=24)
                 
@@ -162,7 +181,7 @@ class FMPFetcher:
                         logger.warning(f"FMP CACHE HIT (Error): {endpoint} - Skipping to save limit.")
                         return None
                 elif datetime.now() - mtime < success_duration:
-                    logger.info(f"FMP CACHE HIT: {endpoint}")
+                    logger.info(f"FMP CACHE HIT ({'Monthly' if is_fundamental else 'Daily'}): {endpoint}")
                     return cached_data
             except Exception as e:
                 logger.warning(f"Failed to read cache for {endpoint}: {e}")
@@ -405,6 +424,42 @@ class FMPFetcher:
              with open(cache_path, 'wb') as f:
                 pickle.dump(data, f)
         
+        return data or []
+
+    def fetch_sector_performance(self) -> List[Dict]:
+        """Fetch real-time sector performance."""
+        cache_path = self.cache_dir / "sector_performance.pkl"
+        if self._is_cache_valid(cache_path, hours=1):
+            with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+        
+        # v3 endpoint for sector performance
+        data = self._fetch("sector-performance", {})
+        if data:
+            with open(cache_path, 'wb') as f:
+                pickle.dump(data, f)
+        return data or []
+
+    def fetch_economic_calendar(self, days_forward: int = 7) -> List[Dict]:
+        """Fetch upcoming economic events."""
+        cache_path = self.cache_dir / "econ_calendar.pkl"
+        if self._is_cache_valid(cache_path, hours=4):
+            with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+
+        from datetime import date
+        today = date.today()
+        future = today + timedelta(days=days_forward)
+        
+        # v3 endpoint
+        params = {
+            'from': today.strftime('%Y-%m-%d'),
+            'to': future.strftime('%Y-%m-%d')
+        }
+        data = self._fetch("economic_calendar", params)
+        if data:
+            with open(cache_path, 'wb') as f:
+                pickle.dump(data, f)
         return data or []
 
     def fetch_stock_news(self, tickers: List[str], limit: int = 5) -> List[Dict]:

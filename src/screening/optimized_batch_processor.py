@@ -236,36 +236,13 @@ class OptimizedBatchProcessor:
 
             current_price = price_data['Close'].iloc[-1]
 
-            # Historical drawdown filter (using 5y data we already fetched)
-            # Exclude stocks that dropped >60% from any high in past 5 years
-            if not long_hist.empty and len(long_hist) >= 252:  # At least 1 year
-                closes = long_hist['Close']
-                # Calculate max drawdown from any previous high
-                running_max = closes.expanding().max()
-                drawdown = (closes - running_max) / running_max
-                max_drawdown = drawdown.min()  # Most negative value
+            current_price = float(price_data['Close'].iloc[-1])
 
-                if max_drawdown < -0.60:  # Dropped more than 60%
-                    self.filtered_count += 1
-                    self.filter_reasons['severe_drawdown_60pct'] = self.filter_reasons.get('severe_drawdown_60pct', 0) + 1
-                    logger.debug(f"{ticker}: Filtered - {max_drawdown*100:.1f}% max drawdown in 5y")
-                    return None
-
-            # Price filter
-            if current_price < min_price or current_price > max_price:
-                self.filtered_count += 1
-                self.filter_reasons['price_range'] = self.filter_reasons.get('price_range', 0) + 1
-                return None
-
-            # Volume filter
+            # Volume calculation (keep for metadata but don't filter)
             if 'Volume' in price_data.columns:
-                avg_volume = price_data['Volume'].iloc[-20:].mean()
-                if avg_volume < min_volume:
-                    self.filtered_count += 1
-                    self.filter_reasons['low_volume'] = self.filter_reasons.get('low_volume', 0) + 1
-                    return None
+                avg_volume = float(price_data['Volume'].iloc[-20:].mean())
             else:
-                avg_volume = 0
+                avg_volume = 0.0
 
             # Phase classification
             phase_info = classify_phase(price_data, current_price)

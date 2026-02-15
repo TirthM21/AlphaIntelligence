@@ -9,7 +9,11 @@ from pathlib import Path
 import yfinance as yf
 
 from ..data.enhanced_fundamentals import EnhancedFundamentalsFetcher
+from ..data.finnhub_fetcher import FinnhubFetcher
+from ..data.marketaux_fetcher import MarketauxFetcher
+from ..data.fred_fetcher import FredFetcher
 from ..ai.ai_agent import AIAgent
+from .visualizer import MarketVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +22,11 @@ class NewsletterGenerator:
 
     def __init__(self, portfolio_path: str = "./data/positions.json"):
         self.fetcher = EnhancedFundamentalsFetcher()
+        self.finnhub = FinnhubFetcher()
+        self.marketaux = MarketauxFetcher()
+        self.fred = FredFetcher()
         self.ai_agent = AIAgent()
+        self.visualizer = MarketVisualizer()
         self.portfolio_path = Path(portfolio_path)
 
     def load_portfolio(self) -> List[Dict]:
@@ -47,30 +55,130 @@ class NewsletterGenerator:
             
         logger.info(f"Generating professional daily newsletter to {output_path}...")
         
-        # 1. Fetch Data
+        # 1. Initialize data containers
         econ_data = {}
         market_news = []
         portfolio = self.load_portfolio()
         portfolio_tickers = [p['ticker'] for p in portfolio]
         portfolio_news = []
+        econ_calendar = []
+        trending_entities = []
+        earnings_cal = []
         
+        # 2. Try Finnhub & Marketaux NEWS first (Higher quality)
+        if self.finnhub.api_key:
+            try:
+                logger.info("Fetching Finnhub market news & calendars...")
+                finnhub_news = self.finnhub.fetch_market_news(category='general')
+                for item in finnhub_news[:6]:
+                    market_news.append({
+                        'title': item.get('headline'),
+                        'url': item.get('url'),
+                        'site': item.get('source', 'Finnhub'),
+                        'summary': item.get('summary', '')
+                    })
+                
+                earnings_cal = self.finnhub.fetch_earnings_calendar(days_forward=5)
+                econ_calendar = self.finnhub.fetch_economic_calendar() # Might return [] if not premium
+                
+                if portfolio_tickers:
+                    for t in portfolio_tickers[:3]:
+                        p_news = self.finnhub.fetch_company_news(t)
+                        for item in p_news[:2]:
+                            portfolio_news.append({
+                                'title': item.get('headline'),
+                                'symbol': t,
+                                'url': item.get('url'),
+                                'summary': item.get('summary', '')
+                            })
+            except Exception as e:
+                logger.error(f"Finnhub news fetch failed: {e}")
+
+        # Try Marketaux for additional context & trending
+        if self.marketaux.api_key:
+            try:
+                logger.info("Fetching Marketaux trending entities...")
+                trending_entities = self.marketaux.fetch_trending_entities()
+                
+                # If news is still thin, add from Marketaux
+                if len(market_news) < 3:
+                    ma_news = self.marketaux.fetch_market_news(limit=5)
+                    for item in ma_news:
+                        market_news.append({
+                            'title': item.get('title'),
+                            'url': item.get('url'),
+                            'site': item.get('source', 'Marketaux'),
+                            'summary': item.get('snippet', '')
+                        })
+            except Exception as e:
+                logger.error(f"Marketaux fetch failed: {e}")
+
+        # Try FRED for Macro Data (Highest priority for macro)
+        if self.fred.api_key:
+            try:
+                logger.info("Fetching FRED macro economic indicators...")
+                macro_indicators = {
+                    'GDP': 'GDP',
+                    'CPI': 'CPIAUCSL',
+                    'Unemployment': 'UNRATE',
+                    'Fed Funds': 'FEDFUNDS'
+                }
+                for name, series_id in macro_indicators.items():
+                    obs = self.fred.fetch_series_observations(series_id, limit=2)
+                    if obs:
+                        latest = obs[-1]
+                        prev = obs[-2] if len(obs) > 1 else {}
+                        val = latest.get('value', '0')
+                        p_val = prev.get('value', '0')
+                        
+                        try:
+                            val_f = float(val) if val != '.' else 0
+                            p_val_f = float(p_val) if p_val != '.' else 0
+                            trend = "Up" if val_f > p_val_f else "Down"
+                        except:
+                            trend = "Stable"
+                            
+                        econ_data[name] = {
+                            'current': val,
+                            'date': latest.get('date'),
+                            'previous': p_val,
+                            'trend': trend
+                        }
+            except Exception as e:
+                logger.error(f"FRED fetch failed: {e}")
+
+        # Fallback/Supplemental Data from FMP
         if self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
             try:
-                econ_data = self.fetcher.fmp_fetcher.fetch_economic_data()
-                market_news = self.fetcher.fmp_fetcher.fetch_market_news(limit=5)
-                if portfolio_tickers:
+                # FMP used for DAILY news as requested
+                logger.info("Fetching FMP daily market news...")
+                market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
+                if market_news_fmp:
+                    for item in market_news_fmp:
+                        market_news.append({
+                            'title': item.get('title'),
+                            'url': item.get('url'),
+                            'site': 'FMP News',
+                            'summary': item.get('text', '')
+                        })
+                
+                # FMP for economic calendar if not already populated
+                if not econ_calendar:
+                    econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
+                
+                # FMP for portfolio news DAILY 
+                if not portfolio_news and portfolio_tickers:
                     portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
             except Exception as e:
-                logger.error(f"Failed to fetch FMP data: {e}")
+                logger.error(f"Failed to fetch FMP daily news: {e}")
 
-        # Fallback for news if FMP failed or returned nothing
+        # Fallback for news if everything else failed
         if not market_news:
             try:
-                logger.info("FMP news unavailable, falling back to basic news...")
-                # Use a few bellwether stocks for general news
+                logger.info("Falling back to basic yfinance news...")
                 for t in ['SPY', 'QQQ', 'DIA']:
                     stock = yf.Ticker(t)
-                    for n in stock.news[:2]:
+                    for n in (stock.news or [])[:2]:
                         market_news.append({
                             'title': n.get('title'),
                             'url': n.get('link'),
@@ -81,9 +189,9 @@ class NewsletterGenerator:
 
         if not portfolio_news and portfolio_tickers:
             try:
-                for t in portfolio_tickers[:5]: # Max 5 for speed
+                for t in portfolio_tickers[:5]:
                     stock = yf.Ticker(t)
-                    for n in stock.news[:1]:
+                    for n in (stock.news or [])[:1]:
                         portfolio_news.append({
                             'title': n.get('title'),
                             'symbol': t,
@@ -92,174 +200,164 @@ class NewsletterGenerator:
             except Exception as e:
                 logger.error(f"Portfolio news fallback failed: {e}")
 
-        # 2. Build Content
+        # 2.5 Near-Term Catalysts (Earnings & Markets)
+        catalysts = []
+        if earnings_cal:
+            for e in earnings_cal[:3]:
+                catalysts.append(f"**{e.get('symbol')}** Earnings: {e.get('date')} ({e.get('hour', '').upper()})")
+        if econ_calendar:
+             for ev in econ_calendar[:2]:
+                 catalysts.append(f"**{ev.get('event')}**: {ev.get('date')}")
+
+        # 3. Dynamic Sector & Cap Analysis
+        sector_perf = []
+        cap_perf = {}
+        if self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+            try:
+                sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
+                # Sort sectors by performance
+                if sector_perf:
+                    sector_perf = sorted(sector_perf, key=lambda x: float(x.get('changesPercentage', '0').replace('%','')), reverse=True)
+            except Exception as e:
+                logger.error(f"Sector perf fetch failed: {e}")
+        
+        # Cap Segment Analysis (SPY, MDY, IWM)
+        try:
+            for symbol, label in [('SPY', 'Large Cap'), ('MDY', 'Mid Cap'), ('IWM', 'Small Cap')]:
+                t = yf.Ticker(symbol)
+                hist = t.history(period='2d')
+                if len(hist) >= 2:
+                    change = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                    cap_perf[label] = round(change, 2)
+        except Exception as e:
+            logger.error(f"Cap perf check failed: {e}")
+
+        # 4. Generate Charts
+        sector_chart_path = ""
+        cap_chart_path = ""
+        if sector_perf:
+            sector_chart_path = self.visualizer.generate_sector_chart(sector_perf)
+        if cap_perf:
+            cap_chart_path = self.visualizer.generate_cap_comparison(cap_perf)
+
+        # 5. QotD & Historical insights (Multiple QotDs for PRISM style)
+        qotds = []
+        for _ in range(3):
+            qotds.append(self.ai_agent.generate_qotd())
+            
+        history_insight = ""
+        # 6. Build Content (Strict PRISM Style)
         content = []
-        date_str = datetime.now().strftime('%A, %B %d, %Y')
+        date_str = datetime.now().strftime('%B %d, %Y')
         
         # Header
-        content.append(f"# 🏦 AlphaIntelligence Capital — Daily Intelligence Brief | {date_str}")
-        content.append(f"*Institutional-Grade Quantitative Research & Alpha Generation*")
-        content.append("")
+        content.append(f"## 🏛️ AlphaIntelligence Capital BRIEF")
+        content.append(f"# {date_str}")
         
-        # --- SECTION 1: MACRO ECONOMY ---
-        content.append("## 🌍 Macroeconomic Intelligence")
-        if econ_data:
-            content.append("| Indicator | Current | Trend | Previous | Analysis |")
-            content.append("|-----------|---------|-------|----------|----------|")
-            for name, data in econ_data.items():
-                trend_icon = "↗️" if data.get('trend') == 'Up' else "↘️"
-                val = data.get('current')
-                prev = data.get('previous')
-                
-                # Analysis thinking
-                analysis = "Stable"
-                if name == 'CPI':
-                    analysis = "Inflationary risk" if val > 3.0 else "Within target"
-                elif name == 'GDP':
-                    analysis = "Strong growth" if val > 2.5 else "Moderate"
-                elif name == 'Unemployment':
-                    analysis = "Tight labor market" if val < 4.0 else "Loosening"
-                
-                # Format values
-                val_fmt = "N/A"
-                if val:
-                    val_fmt = f"{val:.2f}%" if name != 'GDP' else f"${val:.1f}T"
-                
-                prev_fmt = "N/A"
-                if prev:
-                    prev_fmt = f"{prev:.2f}%" if name != 'GDP' else f"${prev:.1f}T"
-                
-                content.append(f"| {name} | **{val_fmt}** | {trend_icon} | {prev_fmt} | {analysis} |")
-            content.append("")
-        else:
-            content.append("*Macro data unavailable. Verify FMP API connectivity.*")
-            content.append("")
-
-        # --- SECTION 2: PORTFOLIO DASHBOARD ---
-        if portfolio:
-            content.append("## 💼 Portfolio Intelligence")
-            content.append("| Ticker | Qty | Buy Price | Focus |")
-            content.append("|--------|-----|-----------|-------|")
-            for p in portfolio:
-                content.append(f"| **{p['ticker']}** | {p['quantity']} | ${p['average_buy_price']:.2f} | Monitoring |")
-            content.append("")
-            
-            if portfolio_news:
-                content.append("### 🗞️ Portfolio News & Catalysts")
-                for item in portfolio_news:
-                    title = item.get('title', 'No Title')
-                    symbol = item.get('symbol', '')
-                    url = item.get('url', '#')
-                    content.append(f"- **{symbol}**: [{title}]({url})")
-                content.append("")
-
-        # --- SECTION 3: MARKET HEALTH & REGIME ---
-        if market_status:
-            spy = market_status.get('spy', {})
-            breadth = market_status.get('breadth', {})
-            
-            content.append("## 🏥 Market Regime & Health")
-            spy_trend = spy.get('trend', 'Unknown')
-            spy_price = spy.get('current_price', 0)
-            trend_emoji = "🟢" if spy_trend == "UPTREND" else "🔴" if spy_trend == "DOWNTREND" else "🟡"
-            
-            content.append(f"### Benchmark: {trend_emoji} {spy_trend} (SPY ${(spy_price or 0):.2f})")
-            
-            adv_dec = breadth.get('advance_decline_ratio') or 0
-            stocks_above_ma = breadth.get('percent_above_200sma') or breadth.get('bullish_pct') or 0
-            
-            content.append(f"- **Market Breadth (AD Ratio)**: {(adv_dec or 0):.2f}")
-            content.append(f"- **Participation (> 200 SMA)**: {(stocks_above_ma or 0):.1f}%")
-            
-            # Smart thinking
-            regime_note = "Cautious"
-            if spy_trend == "UPTREND" and stocks_above_ma > 60:
-                regime_note = "**Aggressive Deployment** - Market environment is highly supportive."
-            elif spy_trend == "DOWNTREND":
-                regime_note = "**Capital Preservation** - High cash levels recommended."
-            else:
-                regime_note = "**Selective Bias** - Focus only on elite relative strength."
-            
-            content.append(f"\n> **Strategic Bias**: {regime_note}")
-            content.append("")
-
-        # --- SECTION 4: ELITE OPPORTUNITIES ---
-        content.append("## 🎯 Alpha Opportunities — High-Conviction Coverage")
-        
-        if top_buys:
-            content.append(f"### 🟢 Priority Allocation ({len(top_buys)} setups identified)")
-            for i, signal in enumerate(top_buys[:5], 1): # Top 5 only
-                ticker = signal.get('ticker', 'UNKNOWN')
-                score = signal.get('score', 0)
-                price = signal.get('current_price') or signal.get('breakout_price') or 0
-                
-                snap = signal.get('fundamental_snapshot', "")
-                
-                # AI Commentary for Buy signals
-                ai_note = ""
-                if self.ai_agent.api_key:
-                    ai_note = self.ai_agent.generate_commentary(ticker, {
-                        "price": price, 
-                        "score": score,
-                        "ratios": snap.replace("\n", " ")[:500]
-                    })
-
-                content.append(f"**{i}. {ticker}** (Tactical Score: {(score or 0):.1f}) - **${(price or 0):.2f}**")
-                if ai_note:
-                    content.append(f"  - **AI Thesis**: *{ai_note}*")
-                
-                # Extract DCF
-                if "Intrinsic Value (DCF):" in snap:
-                    dcf_val = snap.split("Intrinsic Value (DCF):")[1].split("\n")[0].strip()
-                    content.append(f"  - *DCF Target: {dcf_val}*")
-                
-                # Financial Strength
-                if "Balance Sheet & Efficiency:" in snap:
-                    bs_section = snap.split("Balance Sheet & Efficiency:")[1].split("Overall Assessment")[0].strip()
-                    content.append("  - **Financial Strength**:")
-                    for line in bs_section.split("\n"):
-                        if line.strip():
-                            content.append(f"    - {line.strip()}")
-                
-                content.append("")
-        else:
-            content.append("*Zero high-conviction buy signals identified.*")
-            
-        content.append("")
-
-        if top_sells:
-            content.append(f"### 🔴 Risk Management Alerts")
-            for i, signal in enumerate(top_sells[:5], 1):
-                 ticker = signal.get('ticker')
-                 score = signal.get('score')
-                 reason = signal.get('reasons', ['Signal triggered'])[0]
-                 content.append(f"**{i}. {ticker}** - *{reason}* (Risk Score: {score})")
-        else:
-            content.append("*No exit alerts triggered.*")
-
-        content.append("")
-        content.append("---")
-        content.append("## 🗞️ Global Market Intel")
+        headline = "Institutional Sentiment Stabilizes Amidst Technical Consolidation"
         if market_news:
-            for item in market_news:
-                title = item.get('title', 'No Title')
-                site = item.get('site', 'News')
-                url = item.get('url', '#')
-                content.append(f"- [{title}]({url}) - *{site}*")
-        else:
-            content.append("*Global news stream offline.*")
-
-        # --- FUND PERFORMANCE SECTION ---
-        if fund_performance_md:
-            content.append("")
-            content.append("---")
-            content.append(fund_performance_md)
-
+            headline = market_news[0]['title']
+        content.append(f"## {headline}")
+        
+        if market_news:
+             content.append(f"{market_news[0].get('summary', 'Market participants are evaluating recent volatility as earnings season developments provide a mixed technical backdrop.')}")
         content.append("")
         content.append("---")
-        content.append(f"*AlphaIntelligence Capital | Systematic Alpha Research | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
-        content.append(f"*Confidential & Proprietary — For Authorized Recipients Only*")
+        content.append("")
+
+        # --- SECTION: MARKET MOOD ---
+        content.append("### Market Sentiment")
+        sentiment_score = 55.5
+        sentiment_label = "Neutral"
+        if trending_entities:
+            avg_sent = sum(e.get('sentiment_avg', 0) for e in trending_entities) / len(trending_entities)
+            sentiment_score = 50 + (avg_sent * 50)
+            sentiment_label = "Greed" if sentiment_score > 60 else "Fear" if sentiment_score < 40 else "Neutral"
         
+        content.append(f"**{sentiment_score:.1f} {sentiment_label}**")
+        content.append("")
+        
+        spy_change = cap_perf.get('Large Cap', 0)
+        qqq_change = 0
+        try:
+            qqq = yf.Ticker('QQQ').history(period='2d')
+            if len(qqq) >= 2:
+                qqq_change = round(((qqq['Close'].iloc[-1] / qqq['Close'].iloc[-2]) - 1) * 100, 2)
+        except: pass
+
+        content.append("### Early Trading")
+        content.append(f"**S&P 500**")
+        content.append(f"{'▲' if spy_change > 0 else '▼'} {spy_change:+.2f}%")
+        content.append(f"**NASDAQ**")
+        content.append(f"{'▲' if qqq_change > 0 else '▼'} {qqq_change:+.2f}%")
+        content.append("")
+
+        # --- SECTION: MACRO PULSE (NEW: FRED DATA) ---
+        if econ_data:
+            content.append("### Macro Pulse (FRED)")
+            for name, data in econ_data.items():
+                trend_icon = "▲" if data['trend'] == "Up" else "▼" if data['trend'] == "Down" else "•"
+                content.append(f"**{name}**: {data['current']} ({trend_icon} from {data['previous']})")
+            content.append("")
+
+        # --- SECTION: SECTOR PERFORMANCE ---
+        if sector_perf:
+            content.append("### Sector Performance")
+            for s in sector_perf[:8]:
+                change_str = s.get('changesPercentage', '0.00%')
+                content.append(f"{s.get('sector')}")
+                content.append(f"**{change_str}**")
+            content.append("")
+
+        # --- SECTION: QUESTIONS OF THE DAY ---
+        content.append("## 💡 Questions of the Day")
+        for i, q in enumerate(qotds, 1):
+            content.append(f"### {q.get('question')}")
+            content.append(f"📊 **The Answer**: {q.get('answer')}")
+            content.append(f"\n*{q.get('insight')}*")
+            if i < len(qotds): content.append("\n---")
+        content.append("")
+
+        # --- SECTION: WHAT HISTORY SAYS ---
+        content.append("## 🏛️ What History Says")
+        if top_buys:
+             t_stock = top_buys[0].get('ticker')
+             hist_comment = self.ai_agent._call_ai(f"Provide professional historical context for {t_stock} relative to its technical setup. 3 sentences.")
+             content.append(f"### {t_stock} Context")
+             content.append(f"{hist_comment or history_insight}")
+        else:
+             content.append(f"{history_insight}")
+        content.append("")
+
+        # --- SECTION: TOP HEADLINES ---
+        if market_news:
+            content.append("## 📰 Top Headlines")
+            for item in market_news[:8]:
+                title = item.get('title', 'No Title')
+                url = item.get('url', '#')
+                site = item.get('site', 'News')
+                content.append(f"- [{title}]({url}) — *{site}*")
+            content.append("")
+
+        # --- SECTION: TODAY'S EVENTS ---
+        if econ_calendar:
+            content.append("## 📅 Today's Events")
+            for event in econ_calendar[:8]:
+                date = event.get('date', '')
+                title = event.get('event', 'Economic Event')
+                content.append(f"○ **{date}** {title}")
+            content.append("")
+
+        # --- GLOSSARY SECTION ---
+        content.append("## 📖 Glossary")
+        content.append("- **Z-Score**: A statistical measurement of a value's relationship to the mean.")
+        content.append("- **RSI**: Momentum indicator measuring speed and change of price movements.")
+        content.append("- **Volatility**: Dispersion of returns for a given security or market index.")
+        content.append("")
+        content.append("---")
+        content.append(f"**AlphaIntelligence Capital**")
+        content.append(f"This content is for informational purposes only. [Unsubscribe](https://alphaintelligence.capital/unsubscribe)")
+
         # 3. Enhance whole newsletter with AI for premium feel
         final_md = "\n".join(content)
         if self.ai_agent.api_key:
@@ -274,5 +372,149 @@ class NewsletterGenerator:
             f.write(final_md)
             
         logger.info(f"Professional Newsletter generated at {output_path}")
+        return output_path
+
+    def generate_quarterly_newsletter(self,
+                                   portfolio: any,
+                                   top_stocks: Dict,
+                                   top_etfs: Dict,
+                                   output_path: Optional[str] = None) -> str:
+        """Generate the comprehensive professional quarterly compounder newsletter."""
+        if output_path is None:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = Path("./data/newsletters/quarterly")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = str(output_dir / f"quarterly_compounder_{timestamp}.md")
+
+        logger.info(f"Generating professional quarterly newsletter to {output_path}...")
+
+        # 1. Gather Data context
+        quarter_date = datetime.now()
+        q = (quarter_date.month - 1) // 3 + 1
+        year = quarter_date.year
+
+        trending = self.marketaux.fetch_trending_entities() if self.marketaux.api_key else []
+        econ_cal = []
+        if self.fetcher.fmp_available:
+            econ_cal = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=30) 
+
+        # Enhanced AI Thesis for Quarterly
+        ai_thesis = "Institutional compounder selection focused on capital efficiency and moat depth."
+        if self.ai_agent.client:
+            prompt = f"Act as a hedge fund macro strategist. Provide a 4-sentence quarterly investment thesis for Q{q} {year} focusing on inflation, interest rates, and sector leadership. Be precise and sophisticated."
+            ai_thesis = self.ai_agent._call_ai(prompt)
+
+        # 2. Build Content (PRISM style refactor)
+        content = []
+        content.append(f"## 🏛️ AlphaIntelligence Capital | STRATEGIC QUARTERLY")
+        content.append(f"# Q{q} {year} Compounder Report")
+        content.append(f"*High-Conviction Allocation & Multi-Year Growth Framework*")
+        content.append(f"**Horizon Date:** {datetime.now().strftime('%B %Y')}")
+        content.append("\n" + "---" + "\n")
+
+        # --- SECTION: QUARTERLY MACRO THESIS ---
+        content.append("## 📜 Quarterly Investment Thesis")
+        content.append(f"{ai_thesis}")
+        content.append("")
+        
+        # Multiple AI QotDs
+        content.append("## 💡 Institutional Historical Insights")
+        for i in range(2):
+            q_data = self.ai_agent.generate_qotd()
+            content.append(f"### {q_data.get('question')}")
+            content.append(f"📊 **The Answer**: {q_data.get('answer')}")
+            content.append(f"\n*{q_data.get('insight')}*")
+            if i == 0: content.append("\n---")
+        content.append("")
+
+        # --- SECTION: MARKET TRENDING ---
+        if trending:
+            content.append("## 🛸 Trending Institutional Interest")
+            content.append("| Sector/Entity | Sentiment | Volume | Analysis |")
+            content.append("|---------------|-----------|--------|----------|")
+            for ent in trending[:5]:
+                content.append(f"| {ent.get('key')} | {ent.get('sentiment_avg', 0):+.2f} | {ent.get('total_documents')} docs | Market Leader |")
+            content.append("")
+
+        # --- SECTION: PORTFOLIO ARCHITECTURE ---
+        content.append("## � Portfolio Governance & Architecture")
+        content.append("| Metric | Value | Benchmark |")
+        content.append("|--------|-------|-----------|")
+        content.append(f"| **Portfolio Quality Score** | {portfolio.total_score:.1f}/100 | > 75.0 |")
+        content.append(f"| **Diversification Score** | {(1.0 - portfolio.sector_concentration):.3f} | > 0.700 |")
+        content.append(f"| **Total Strategic Positions** | {portfolio.total_positions} | 15-25 |")
+        content.append("")
+
+        content.append("### 🛰️ Asset Class Allocation")
+        content.append(f"- **Core (60%)**: {len(portfolio.core_allocations)} High-Conviction Individual Compounders")
+        content.append(f"- **Satellite (40%)**: {len(portfolio.satellite_allocations)} Thematic/Macro ETF Engines")
+        content.append("")
+
+        # --- SECTION: TOP CONVICTION ---
+        content.append("## 💎 Top Conviction Picks (Alpha Leaders)")
+        content.append("| Rank | Ticker | Allocation | Sector/Theme | Score |")
+        content.append("|------|--------|------------|--------------|-------|")
+        
+        sorted_alloc = sorted(portfolio.allocations.items(), key=lambda x: x[1], reverse=True)
+        for rank, (ticker, alloc) in enumerate(sorted_alloc[:10], 1):
+            if ticker in top_etfs:
+                name = top_etfs[ticker].get('theme', 'Thematic')
+                score = top_etfs[ticker].get('score', 0)
+                icon = "📦"
+            else:
+                name = top_stocks.get(ticker, {}).get('sector', 'Unknown')
+                score = top_stocks.get(ticker, {}).get('score', 0)
+                icon = "🏢"
+            
+            content.append(f"| {rank} | **{ticker}** {icon} | {alloc:.2%} | {name} | {score:.1f} |")
+        content.append("")
+
+        # AI Analysis for Top Pick
+        if sorted_alloc:
+            top_ticker = sorted_alloc[0][0]
+            if top_ticker in top_stocks:
+                ai_pick_thesis = self.ai_agent.generate_commentary(top_ticker, {
+                    "type": "Quarterly Compounder",
+                    "allocation": f"{sorted_alloc[0][1]:.2%}",
+                    "details": top_stocks[top_ticker]
+                })
+                content.append(f"### 🛡️ Strategic Selection Thesis: {top_ticker}")
+                content.append(f"*{ai_pick_thesis}*")
+                content.append("")
+
+        # --- SECTION: ECONOMIC HORIZON ---
+        if econ_cal:
+            content.append("## 📅 Event Horizon — Key Quarterly Catalysts")
+            content.append("| Date | Event | Impact | Priority |")
+            content.append("|------|-------|--------|----------|")
+            for event in econ_cal[:8]:
+                imp = event.get('impact', 'Medium')
+                imp_icon = "🔴" if imp == "High" else "🟡"
+                content.append(f"| {event.get('date')} | {event.get('event')} | {imp_icon} {imp} | Strategic |")
+            content.append("")
+
+        # --- GLOSSARY & FOOTER ---
+        content.append("## 📖 Glossary")
+        content.append("- **Compounder**: A high-quality company capable of generating high returns on invested capital over many years.")
+        content.append("- **Moat**: A sustainable competitive advantage that protects a company's long-term profits.")
+        content.append("- **Alpha**: Excess return relative to a benchmark.")
+        content.append("")
+        content.append("---")
+        content.append(f"*AlphaIntelligence Capital | Strategic Asset Management | {datetime.now().strftime('%Y-%m-%d')}*")
+        content.append(f"*Confidential & Proprietary — Wealth Preservation Framework*")
+        content.append("[Portal Access](https://alphaintelligence.capital/portal)")
+
+        final_md = "\n".join(content)
+        if self.ai_agent.client:
+             logger.info("Enhancing quarterly newsletter prose with AI...")
+             final_md = self.ai_agent.enhance_newsletter(final_md)
+
+        # Save to file
+        output_path_obj = Path(output_path)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(final_md)
+
         return output_path
 

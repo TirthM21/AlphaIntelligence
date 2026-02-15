@@ -49,10 +49,14 @@ jobs:
           FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: |
           python run_quarterly_compounder_scan.py \
             --log-level INFO \
-            --output-dir data/quarterly_reports
+            --output-dir data/quarterly_reports \
+            --send-email
         timeout-minutes: 30
 
       - name: Generate report summary

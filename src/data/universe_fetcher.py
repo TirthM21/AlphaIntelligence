@@ -5,6 +5,7 @@ and maintains a daily-updated universe for screening.
 """
 
 import logging
+import os
 import pickle
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import Dict, List, Set
 
 import pandas as pd
 import requests
+
+from .fmp_fetcher import FMPFetcher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,14 +37,44 @@ class USStockUniverseFetcher:
         self.cache_file = self.cache_dir / "us_stock_universe.pkl"
         logger.info("USStockUniverseFetcher initialized")
 
-    def _fetch_from_fmp(self) -> List[Dict]:
-        """Fetch stock list from Financial Modeling Prep (free tier).
-
-        Note: This requires a free API key from financialmodelingprep.com
-        Falls back to other sources if not available.
+    def _fetch_from_fmp(self) -> pd.DataFrame:
+        """Fetch stock list from Financial Modeling Prep.
+        
+        Uses FMP's stock list endpoint which returns all US-listed stocks
+        with symbol, name, price, and exchange info.
+        
+        Returns:
+            DataFrame with symbols and names
         """
-        # This is a fallback - will use other sources
-        return []
+        try:
+            fmp = FMPFetcher()
+            if not fmp.api_key:
+                logger.info("FMP API key not set, skipping FMP universe fetch")
+                return pd.DataFrame()
+            
+            stocks = fmp.fetch_stock_list()
+            if not stocks:
+                logger.warning("FMP returned empty stock list")
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(stocks)
+            if 'symbol' not in df.columns:
+                return pd.DataFrame()
+            
+            # Rename to match expected format
+            df = df[['symbol', 'name']].copy()
+            
+            # Filter out penny stocks (price < $1) if price data available
+            if 'price' in pd.DataFrame(stocks).columns:
+                prices = pd.DataFrame(stocks)['price']
+                mask = prices.fillna(0) >= 1.0
+                df = df[mask.values]
+            
+            logger.info(f"FMP universe: {len(df)} US stocks fetched")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching FMP stock list: {e}")
+            return pd.DataFrame()
 
     def _fetch_nasdaq_listed(self) -> pd.DataFrame:
         """Fetch NASDAQ-listed stocks from NASDAQ FTP.
@@ -152,12 +185,18 @@ class USStockUniverseFetcher:
 
         logger.info("Fetching fresh universe from exchanges...")
 
-        # Fetch from multiple sources
-        nasdaq_df = self._fetch_nasdaq_listed()
-        other_df = self._fetch_other_listed()
-
-        # Combine
-        all_stocks = pd.concat([nasdaq_df, other_df], ignore_index=True)
+        # Try FMP first (faster, more reliable, includes metadata)
+        fmp_df = self._fetch_from_fmp()
+        
+        if not fmp_df.empty and len(fmp_df) > 1000:
+            logger.info(f"Using FMP as primary universe source ({len(fmp_df)} stocks)")
+            all_stocks = fmp_df
+        else:
+            # Fallback to NASDAQ FTP
+            logger.info("FMP unavailable or insufficient, falling back to NASDAQ FTP...")
+            nasdaq_df = self._fetch_nasdaq_listed()
+            other_df = self._fetch_other_listed()
+            all_stocks = pd.concat([nasdaq_df, other_df], ignore_index=True)
 
         if all_stocks.empty:
             logger.error("Failed to fetch any stocks")

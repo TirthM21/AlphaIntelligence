@@ -41,6 +41,7 @@ from src.screening.signal_engine import score_buy_signal, score_sell_signal
 from src.data.enhanced_fundamentals import EnhancedFundamentalsFetcher
 from src.reporting.newsletter_generator import NewsletterGenerator
 from src.reporting.portfolio_manager import PortfolioManager
+from src.reporting.performance_tracker import PerformanceTracker
 from src.notifications.email_notifier import EmailNotifier
 from src.database.db_manager import DBManager
 from src.data.fmp_fetcher import FMPFetcher
@@ -543,6 +544,26 @@ def main():
         except Exception as pm_err:
             logger.error(f"Failed to record signals or generate portfolio reports: {pm_err}")
 
+        # ===== PERFORMANCE TRACKER =====
+        fund_performance_md = ""
+        try:
+            logger.info("🏦 Running AlphaIntelligence Capital performance tracker...")
+            tracker = PerformanceTracker(strategy='DAILY')
+            
+            # 1. Process new signals → open/close positions
+            tracker.process_signals(buy_signals, sell_signals, spy_price=processor.spy_price)
+            
+            # 2. Check stop-losses on all open positions
+            stopped_out = tracker.check_stop_losses()
+            if stopped_out:
+                logger.info(f"🛑 {len(stopped_out)} positions closed via stop-loss")
+            
+            # 3. Generate newsletter section with fund metrics
+            fund_performance_md = tracker.get_newsletter_section()
+            logger.info("✅ Performance tracker complete")
+        except Exception as tracker_err:
+            logger.error(f"Performance tracker error (non-fatal): {tracker_err}")
+
         # Generate Newsletter
         try:
             logger.info("Generating daily newsletter...")
@@ -557,49 +578,63 @@ def main():
             newsletter_path = newsletter_gen.generate_newsletter(
                 market_status=market_status,
                 top_buys=buy_signals,
-                top_sells=sell_signals
+                top_sells=sell_signals,
+                fund_performance_md=fund_performance_md
             )
             logger.info(f"Newsletter ready: {newsletter_path}")
             
             # Send Email
             if args.send_email:
                 try:
-                    logger.info("Preparing for premium email delivery...")
-                    db = DBManager()
-                    subscribers = db.get_active_subscribers()
+                    logger.info("Preparing AlphaIntelligence Capital email delivery...")
                     
-                    # Also include the default recipient from env
+                    # Build subscriber list: always include ENV recipient, optionally add DB subscribers
+                    subscribers = []
                     default_recipient = os.getenv('EMAIL_RECIPIENT')
-                    if default_recipient and default_recipient not in subscribers:
+                    if default_recipient:
                         subscribers.append(default_recipient)
                     
+                    # Try to add database subscribers (optional — works without DB)
+                    try:
+                        db = DBManager()
+                        db_subs = db.get_active_subscribers()
+                        for email in db_subs:
+                            if email not in subscribers:
+                                subscribers.append(email)
+                    except Exception as db_err:
+                        logger.warning(f"Could not fetch DB subscribers (non-fatal): {db_err}")
+                    
                     if not subscribers:
-                        logger.warning("No active subscribers found in database to send newsletter to.")
+                        logger.warning("No recipients configured. Set EMAIL_RECIPIENT in .env or add subscribers to DB.")
                     else:
-                        logger.info(f"Sending newsletter to {len(subscribers)} subscribers...")
+                        logger.info(f"Sending newsletter to {len(subscribers)} recipient(s)...")
                         notifier = EmailNotifier()
                         
-                        # Use latest_optimized_scan.txt as attachment if it exists
-                        latest_report = Path("./data/daily_scans/latest_optimized_scan.txt")
-                        report_to_attach = str(latest_report) if latest_report.exists() else None
-                        
-                        success_count = 0
-                        for email in subscribers:
-                            try:
-                                # Overwrite recipient for this call
-                                notifier.recipient_email = email
-                                if notifier.send_newsletter(
-                                    newsletter_path=newsletter_path,
-                                    scan_report_path=report_to_attach
-                                ):
-                                    success_count += 1
-                                    # Anti-spam delay for bulk
-                                    import time
-                                    time.sleep(0.5)
-                            except Exception as e:
-                                logger.error(f"Failed to send to {email}: {e}")
-                        
-                        logger.info(f"✅ Bulk delivery complete: {success_count}/{len(subscribers)} successful.")
+                        if not notifier.enabled:
+                            logger.error("EmailNotifier is DISABLED. Check EMAIL_SENDER and EMAIL_PASSWORD in .env")
+                        else:
+                            # Use latest_optimized_scan.txt as attachment if it exists
+                            latest_report = Path("./data/daily_scans/latest_optimized_scan.txt")
+                            report_to_attach = str(latest_report) if latest_report.exists() else None
+                            
+                            success_count = 0
+                            for email in subscribers:
+                                try:
+                                    notifier.recipient_email = email
+                                    logger.info(f"Sending to {email}...")
+                                    if notifier.send_newsletter(
+                                        newsletter_path=newsletter_path,
+                                        scan_report_path=report_to_attach
+                                    ):
+                                        success_count += 1
+                                        import time
+                                        time.sleep(0.5)
+                                    else:
+                                        logger.error(f"send_newsletter returned False for {email}")
+                                except Exception as e:
+                                    logger.error(f"Failed to send to {email}: {type(e).__name__}: {e}")
+                            
+                            logger.info(f"✅ Delivery complete: {success_count}/{len(subscribers)} successful.")
                 except Exception as email_err:
                     logger.error(f"Failed to send newsletter email: {email_err}")
             

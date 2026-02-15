@@ -36,6 +36,7 @@ class NewsletterGenerator:
                           market_status: Dict = None, 
                           top_buys: List[Dict] = None,
                           top_sells: List[Dict] = None,
+                          fund_performance_md: str = "",
                           output_path: Optional[str] = None) -> str:
         """Generate the comprehensive professional daily newsletter."""
         if output_path is None:
@@ -96,8 +97,8 @@ class NewsletterGenerator:
         date_str = datetime.now().strftime('%A, %B %d, %Y')
         
         # Header
-        content.append(f"# 🏦 Alpha Intelligence Daily - {date_str}")
-        content.append(f"*Institutional-Grade Market Insights & Premium AI Commentary*")
+        content.append(f"# 🏦 AlphaIntelligence Capital — Daily Intelligence Brief | {date_str}")
+        content.append(f"*Institutional-Grade Quantitative Research & Alpha Generation*")
         content.append("")
         
         # --- SECTION 1: MACRO ECONOMY ---
@@ -183,10 +184,10 @@ class NewsletterGenerator:
             content.append("")
 
         # --- SECTION 4: ELITE OPPORTUNITIES ---
-        content.append("## 🎯 Actionable Intelligence - Premium Coverage")
+        content.append("## 🎯 Alpha Opportunities — High-Conviction Coverage")
         
         if top_buys:
-            content.append(f"### 🟢 Priority Acculmulation ({len(top_buys)} setups detected)")
+            content.append(f"### 🟢 Priority Allocation ({len(top_buys)} setups identified)")
             for i, signal in enumerate(top_buys[:5], 1): # Top 5 only
                 ticker = signal.get('ticker', 'UNKNOWN')
                 score = signal.get('score', 0)
@@ -248,9 +249,16 @@ class NewsletterGenerator:
         else:
             content.append("*Global news stream offline.*")
 
+        # --- FUND PERFORMANCE SECTION ---
+        if fund_performance_md:
+            content.append("")
+            content.append("---")
+            content.append(fund_performance_md)
+
         content.append("")
         content.append("---")
-        content.append(f"*Created by AlphaIntelligence Engine | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+        content.append(f"*AlphaIntelligence Capital | Systematic Alpha Research | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+        content.append(f"*Confidential & Proprietary — For Authorized Recipients Only*")
         
         # 3. Enhance whole newsletter with AI for premium feel
         final_md = "\n".join(content)

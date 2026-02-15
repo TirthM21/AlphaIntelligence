@@ -1,14 +1,14 @@
-# 🏦 AlphaIntelligence System Overview
+# 🏦 AlphaIntelligence Capital — System Overview
 
-This document provides a comprehensive breakdown of the AlphaIntelligence Stock Screener architecture, file responsibilities, and operational metrics.
+This document provides a comprehensive breakdown of the AlphaIntelligence Capital systematic hedge fund engine architecture, module responsibilities, and operational metrics.
 
 ---
 
 ## 🚀 Core Entry Points
 | File | Description |
 | :--- | :--- |
-| `run_optimized_scan.py` | **Main Engine**. Coordinates the full market scan, signal detection, report generation, and AI enhancement. |
-| `run_ai_report.py` | **Deep-Dive Engine**. Uses the latest scan data to generate a "Quantum Intelligence" hedge-fund style report. |
+| `run_optimized_scan.py` | **Main Engine**. Coordinates the full market scan, signal detection, report generation, AI enhancement, and email delivery. |
+| `run_ai_report.py` | **Deep-Dive Engine**. Uses the latest scan data to generate a "Quantum Intelligence" hedge fund research report. |
 | `comprehensive_system_test.py` | **Diagnostic Tool**. Tests all modules (DB, AI, FMP, SEC, Scanner) to ensure system health. |
 
 ---
@@ -35,7 +35,7 @@ This document provides a comprehensive breakdown of the AlphaIntelligence Stock 
 ### 📈 Reporting & Notifications (`src/reporting/` & `src/notifications/`)
 *   **`newsletter_generator.py`**: Compiles technicals, fundamentals, news, and AI commentary into a professional Markdown newsletter.
 *   **`portfolio_manager.py`**: Generates institutional reports: Allocation Plans, Ownership Tracking, and Rebalance Actions.
-*   **`email_notifier.py`**: Bulk delivery system for sending reports to subscribers via encrypted SMTP.
+*   **`email_notifier.py`**: Institutional email delivery system for sending fund research and alerts to subscribers via encrypted SMTP.
 
 ---
 
@@ -67,4 +67,4 @@ python run_ai_report.py
 ```
 
 ---
-*Last Updated: February 05, 2026*
+*Last Updated: February 15, 2026*

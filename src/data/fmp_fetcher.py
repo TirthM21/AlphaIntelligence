@@ -603,6 +603,76 @@ class FMPFetcher:
         snapshot.append("="*60)
         return "\n".join(snapshot)
 
+    def fetch_stock_list(self, exchange: str = None) -> List[Dict]:
+        """Fetch list of all listed stocks, optionally filtered by exchange.
+        
+        Args:
+            exchange: Optional exchange filter ('NASDAQ', 'NYSE', 'AMEX')
+            
+        Returns:
+            List of dicts with 'symbol', 'name', 'price', 'exchangeShortName'
+        """
+        cache_key = f"stock_list_{exchange or 'all'}"
+        cache_path = self.cache_dir / f"{cache_key}.pkl"
+        
+        # 24h cache for stock lists
+        if cache_path.exists():
+            try:
+                mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
+                if datetime.now() - mtime < timedelta(hours=24):
+                    with open(cache_path, 'rb') as f:
+                        data = pickle.load(f)
+                    logger.info(f"FMP stock list loaded from cache: {len(data)} symbols")
+                    return data
+            except Exception:
+                pass
+        
+        # Use v3 stock list endpoint
+        params = {'apikey': self.api_key}
+        if exchange:
+            params['exchange'] = exchange
+        
+        try:
+            url = "https://financialmodelingprep.com/api/v3/stock/list"
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            self.bandwidth_used += len(response.content)
+            
+            data = response.json()
+            if not isinstance(data, list):
+                logger.warning("FMP stock list returned unexpected format")
+                return []
+            
+            # Filter to US exchanges only
+            us_exchanges = {'NASDAQ', 'NYSE', 'AMEX', 'New York Stock Exchange', 'Nasdaq Global Select'}
+            filtered = [
+                {
+                    'symbol': s.get('symbol', ''),
+                    'name': s.get('name', ''),
+                    'price': s.get('price', 0),
+                    'exchange': s.get('exchangeShortName', s.get('exchange', '')),
+                    'type': s.get('type', '')
+                }
+                for s in data
+                if (s.get('exchangeShortName', '') in us_exchanges or 
+                    s.get('exchange', '') in us_exchanges)
+                and s.get('type', '') == 'stock'
+            ]
+            
+            # Cache
+            try:
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(filtered, f)
+            except Exception as e:
+                logger.warning(f"Failed to cache stock list: {e}")
+            
+            logger.info(f"FMP stock list fetched: {len(filtered)} US stocks")
+            return filtered
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch FMP stock list: {e}")
+            return []
+
     def get_bandwidth_stats(self) -> Dict[str, any]:
         """Get bandwidth usage statistics.
 

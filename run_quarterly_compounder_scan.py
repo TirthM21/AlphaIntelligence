@@ -752,6 +752,42 @@ class QuarterlyCompounderScan:
                 portfolio, top_stocks, top_etfs
             )
 
+            # ===== PERFORMANCE TRACKER =====
+            try:
+                from src.reporting.performance_tracker import PerformanceTracker
+                logger.info("")
+                logger.info("=" * 80)
+                logger.info("STEP 8: PERFORMANCE TRACKING")
+                logger.info("=" * 80)
+                
+                tracker = PerformanceTracker(strategy='QUARTERLY')
+                
+                # Build buy signals from top stocks for position tracking
+                buy_signals = []
+                for ticker, data in top_stocks.items():
+                    buy_signals.append({
+                        'ticker': ticker,
+                        'current_price': data.get('score', 0),  # Will be updated with real price
+                        'score': data.get('score', 0),
+                        'stop_loss': None,
+                    })
+                
+                # Fetch real prices for top stocks
+                real_prices = tracker._batch_fetch_prices(list(top_stocks.keys()))
+                for signal in buy_signals:
+                    if signal['ticker'] in real_prices:
+                        signal['current_price'] = real_prices[signal['ticker']]
+                
+                tracker.process_signals(buy_signals, [], spy_price=None)
+                tracker.check_stop_losses()
+                metrics = tracker.compute_fund_metrics()
+                
+                logger.info(f"✓ Quarterly performance tracked: {metrics.get('open_positions', 0)} positions, "
+                           f"win rate {metrics.get('win_rate', 0):.1f}%, "
+                           f"alpha {metrics.get('alpha_vs_spy', 0):+.2f}%")
+            except Exception as tracker_err:
+                logger.warning(f"Performance tracker error (non-fatal): {tracker_err}")
+
             # Display summary
             logger.info("")
             logger.info("=" * 80)

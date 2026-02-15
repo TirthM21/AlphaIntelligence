@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "CCNE",
-    "fetch_date": "2026-01-30T13:25:39.478143",
+    "fetch_date": "2026-02-15T19:00:42.895428",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 57266000.0,
@@ -26,5 +26,5 @@
     "eps_yoy_change": 66.66666666666667,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:25:39.478805"
+  "fetched_at": "2026-02-15T19:00:42.896227"
 }

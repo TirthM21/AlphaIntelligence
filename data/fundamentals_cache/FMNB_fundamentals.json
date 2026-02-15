@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "FMNB",
-    "fetch_date": "2026-01-30T13:36:50.605636",
+    "fetch_date": "2026-02-15T19:12:09.580341",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 44216000.0,
@@ -26,5 +26,5 @@
     "eps_yoy_change": 2.6315789473684235,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:36:50.606288"
+  "fetched_at": "2026-02-15T19:12:09.581138"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "SCCO",
-    "fetch_date": "2026-01-30T14:04:30.993106",
+    "fetch_date": "2026-02-15T19:40:32.248384",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 2930900000.0,
       "2024-12-31 00:00:00": 2784400000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": NaN,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T14:04:30.994607"
+  "fetched_at": "2026-02-15T19:40:32.250457"
 }

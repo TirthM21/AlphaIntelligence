@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "WBD",
-    "fetch_date": "2025-12-04T14:18:57.738149",
+    "fetch_date": "2026-02-15T19:52:01.399525",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 9623000000.0,
@@ -27,5 +27,5 @@
     "operating_margin": 8.24,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:18:57.739566"
+  "fetched_at": "2026-02-15T19:52:01.402472"
 }

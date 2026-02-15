@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "GMRE",
-    "fetch_date": "2026-01-15T13:26:48.736842",
+    "fetch_date": "2026-02-15T19:14:39.138853",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 34175000.0,
@@ -27,5 +27,5 @@
     "operating_margin": 24.15,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-15T13:26:48.738103"
+  "fetched_at": "2026-02-15T19:14:39.140542"
 }

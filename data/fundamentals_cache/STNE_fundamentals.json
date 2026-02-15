@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "STNE",
-    "fetch_date": "2025-12-04T14:13:34.096395",
+    "fetch_date": "2026-02-15T19:44:35.162313",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 2926270000.0,
       "2024-12-31 00:00:00": 3490762000.0,
@@ -25,5 +25,5 @@
     "operating_margin": 53.49,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:13:34.097710"
+  "fetched_at": "2026-02-15T19:44:35.187368"
 }

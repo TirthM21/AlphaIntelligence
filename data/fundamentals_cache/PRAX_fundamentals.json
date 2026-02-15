@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "PRAX",
-    "fetch_date": "2025-12-04T14:07:21.073510",
+    "fetch_date": "2026-02-15T19:35:47.080534",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 302000.0,
       "2024-12-31 00:00:00": 7463000.0,
@@ -9,8 +9,8 @@
       "2025-06-30 00:00:00": 0.0,
       "2025-09-30 00:00:00": 0.0
     },
-    "revenue_qoq_change": 0,
-    "revenue_yoy_change": -100.0,
+    "revenue_qoq_change": null,
+    "revenue_yoy_change": null,
     "quarterly_eps": {
       "2024-09-30 00:00:00": -2.75,
       "2024-12-31 00:00:00": -2.94,
@@ -23,5 +23,5 @@
     "operating_margin": 0,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:07:21.074479"
+  "fetched_at": "2026-02-15T19:35:47.081635"
 }

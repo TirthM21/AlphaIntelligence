@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "INSE",
-    "fetch_date": "2026-01-15T13:31:27.759323",
+    "fetch_date": "2026-02-15T19:19:24.867076",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 77200000.0,
       "2024-12-31 00:00:00": 80400000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 0.31,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-15T13:31:27.760911"
+  "fetched_at": "2026-02-15T19:19:24.869000"
 }

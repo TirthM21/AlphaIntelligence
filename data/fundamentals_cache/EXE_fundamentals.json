@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "EXE",
-    "fetch_date": "2026-01-30T13:34:59.490423",
+    "fetch_date": "2026-02-15T19:10:21.764513",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 646000000.0,
@@ -27,5 +27,5 @@
     "operating_margin": 26.26,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:34:59.491589"
+  "fetched_at": "2026-02-15T19:10:21.766008"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "STEM",
-    "fetch_date": "2025-12-04T14:13:25.989799",
+    "fetch_date": "2026-02-15T19:44:23.389670",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 29291000.0,
@@ -26,7 +26,6 @@
     "margin_change": 2.16,
     "operating_margin": -33.61,
     "quarterly_inventory": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 33950000.0,
       "2024-12-31 00:00:00": 10920000.0,
@@ -38,5 +37,5 @@
     "inventory_to_sales_ratio": 0.135,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:13:25.991534"
+  "fetched_at": "2026-02-15T19:44:23.391972"
 }

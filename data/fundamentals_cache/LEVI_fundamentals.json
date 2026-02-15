@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "LEVI",
-    "fetch_date": "2026-01-30T13:47:37.774930",
+    "fetch_date": "2026-02-15T19:23:11.021775",
     "quarterly_revenue": {
       "2024-05-31 00:00:00": NaN,
       "2024-08-31 00:00:00": NaN,
@@ -40,5 +40,5 @@
     "inventory_to_sales_ratio": 0.701,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:47:37.776424"
+  "fetched_at": "2026-02-15T19:23:11.023837"
 }

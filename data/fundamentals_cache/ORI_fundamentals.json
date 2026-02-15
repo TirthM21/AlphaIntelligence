@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "ORI",
-    "fetch_date": "2026-01-30T13:56:54.863105",
+    "fetch_date": "2026-02-15T19:32:48.281453",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 2341400000.0,
@@ -26,5 +26,5 @@
     "eps_yoy_change": 95.23809523809523,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:56:54.863773"
+  "fetched_at": "2026-02-15T19:32:48.282362"
 }

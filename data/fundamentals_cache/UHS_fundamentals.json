@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "UHS",
-    "fetch_date": "2026-01-30T14:12:51.324781",
+    "fetch_date": "2026-02-15T19:49:08.823896",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 3963027000.0,
       "2024-12-31 00:00:00": 4113722000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 0.05,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T14:12:51.326248"
+  "fetched_at": "2026-02-15T19:49:08.825935"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "FE",
-    "fetch_date": "2026-01-30T13:35:52.643306",
+    "fetch_date": "2026-02-15T19:11:10.921207",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 3729000000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.139,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:35:52.644888"
+  "fetched_at": "2026-02-15T19:11:10.923208"
 }

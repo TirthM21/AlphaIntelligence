@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "CMC",
-    "fetch_date": "2026-01-30T13:27:23.500498",
+    "fetch_date": "2026-02-15T19:02:34.752308",
     "quarterly_revenue": {
       "2024-11-30 00:00:00": 1909602000.0,
       "2025-02-28 00:00:00": 1754376000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 0.449,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:27:23.501974"
+  "fetched_at": "2026-02-15T19:02:34.754403"
 }

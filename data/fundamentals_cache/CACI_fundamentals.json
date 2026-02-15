@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "CACI",
-    "fetch_date": "2026-01-30T13:24:40.349644",
+    "fetch_date": "2026-02-15T18:59:44.015020",
     "quarterly_revenue": {
       "2024-12-31 00:00:00": 2099809000.0,
       "2025-03-31 00:00:00": 2166982000.0,
@@ -36,5 +36,5 @@
     "inventory_to_sales_ratio": 0.069,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:24:40.351098"
+  "fetched_at": "2026-02-15T18:59:44.016947"
 }

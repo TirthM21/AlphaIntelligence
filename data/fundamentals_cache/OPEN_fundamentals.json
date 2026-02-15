@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "OPEN",
-    "fetch_date": "2025-12-04T14:04:56.503644",
+    "fetch_date": "2026-02-15T19:32:29.327498",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 1377000000.0,
@@ -26,7 +26,6 @@
     "margin_change": -0.96,
     "operating_margin": -7.32,
     "quarterly_inventory": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 2145000000.0,
       "2024-12-31 00:00:00": 2159000000.0,
@@ -38,5 +37,5 @@
     "inventory_to_sales_ratio": 1.151,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:04:56.505355"
+  "fetched_at": "2026-02-15T19:32:29.329492"
 }

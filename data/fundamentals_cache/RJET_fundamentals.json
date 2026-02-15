@@ -1,0 +1,20 @@
+{
+  "data": {
+    "ticker": "RJET",
+    "fetch_date": "2026-02-15T19:38:39.381137",
+    "quarterly_revenue": {
+      "2025-03-31 00:00:00": 394800000.0
+    },
+    "quarterly_eps": {
+      "2025-03-31 00:00:00": 0.532417
+    },
+    "gross_margin": 28.75,
+    "operating_margin": 13.4,
+    "quarterly_inventory": {
+      "2025-03-31 00:00:00": 64200000.0
+    },
+    "inventory_to_sales_ratio": 0.163,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-15T19:38:39.382102"
+}

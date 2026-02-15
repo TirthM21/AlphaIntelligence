@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "GNE",
-    "fetch_date": "2026-01-13T13:28:43.502674",
+    "fetch_date": "2026-02-15T19:14:40.018391",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 111917000.0,
@@ -36,5 +36,5 @@
     "inventory_to_sales_ratio": 0.151,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-13T13:28:43.504367"
+  "fetched_at": "2026-02-15T19:14:40.020518"
 }

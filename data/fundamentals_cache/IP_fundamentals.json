@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "IP",
-    "fetch_date": "2026-02-02T13:48:51.713932",
+    "fetch_date": "2026-02-15T19:19:46.974812",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 3979000000.0,
@@ -39,5 +39,5 @@
     "inventory_to_sales_ratio": NaN,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-02-02T13:48:51.715790"
+  "fetched_at": "2026-02-15T19:19:46.976805"
 }

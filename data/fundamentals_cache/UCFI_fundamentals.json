@@ -1,0 +1,30 @@
+{
+  "data": {
+    "ticker": "UCFI",
+    "fetch_date": "2026-02-15T19:48:54.652238",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 4291966.0,
+      "2024-12-31 00:00:00": 6092746.0,
+      "2025-09-30 00:00:00": 7905065.0
+    },
+    "revenue_qoq_change": 29.7455203286006,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": 0.04,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": 0.07
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 70.43,
+    "margin_change": 3.52,
+    "operating_margin": 57.99,
+    "quarterly_inventory": {
+      "2024-09-30 00:00:00": 1599304.0,
+      "2024-12-31 00:00:00": 1250701.0,
+      "2025-09-30 00:00:00": 1851687.0
+    },
+    "inventory_qoq_change": 48.05,
+    "inventory_to_sales_ratio": 0.234,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-15T19:48:54.654176"
+}

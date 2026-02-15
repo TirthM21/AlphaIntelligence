@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "LEN",
-    "fetch_date": "2026-02-05T13:54:14.973969",
+    "fetch_date": "2026-02-15T19:23:07.092805",
     "quarterly_revenue": {
       "2024-11-30 00:00:00": 9946888000.0,
       "2025-02-28 00:00:00": 7631545000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 1.264,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-02-05T13:54:14.975978"
+  "fetched_at": "2026-02-15T19:23:07.094786"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "CHDN",
-    "fetch_date": "2026-01-30T13:26:26.622493",
+    "fetch_date": "2026-02-15T19:01:31.428976",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 628500000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.018,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:26:26.623974"
+  "fetched_at": "2026-02-15T19:01:31.431012"
 }

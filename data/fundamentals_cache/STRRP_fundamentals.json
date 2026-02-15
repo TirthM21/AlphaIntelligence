@@ -1,0 +1,30 @@
+{
+  "data": {
+    "ticker": "STRRP",
+    "fetch_date": "2026-02-15T19:44:44.132541",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 36853000.0,
+      "2024-12-31 00:00:00": 33600000.0,
+      "2025-03-31 00:00:00": 31866000.0,
+      "2025-06-30 00:00:00": 35541000.0,
+      "2025-09-30 00:00:00": 47959000.0
+    },
+    "revenue_qoq_change": 34.9399285332433,
+    "revenue_yoy_change": 30.135945513255365,
+    "gross_margin": 43.01,
+    "margin_change": -9.42,
+    "operating_margin": -3.43,
+    "quarterly_inventory": {
+      "2024-06-30 00:00:00": NaN,
+      "2024-09-30 00:00:00": NaN,
+      "2024-12-31 00:00:00": NaN,
+      "2025-03-31 00:00:00": NaN,
+      "2025-06-30 00:00:00": NaN,
+      "2025-09-30 00:00:00": 7746000.0
+    },
+    "inventory_qoq_change": null,
+    "inventory_to_sales_ratio": 0.162,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-15T19:44:44.134288"
+}

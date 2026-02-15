@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "GTLS",
-    "fetch_date": "2026-01-30T13:40:15.610347",
+    "fetch_date": "2026-02-15T19:15:38.869302",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 1062500000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.467,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:40:15.611819"
+  "fetched_at": "2026-02-15T19:15:38.871348"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "OCFC",
-    "fetch_date": "2026-01-30T13:55:41.913518",
+    "fetch_date": "2026-02-15T19:31:32.882154",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 95750000.0,
@@ -26,5 +26,5 @@
     "eps_yoy_change": -36.11111111111111,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:55:41.914141"
+  "fetched_at": "2026-02-15T19:31:32.883173"
 }

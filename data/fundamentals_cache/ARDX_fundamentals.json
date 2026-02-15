@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "ARDX",
-    "fetch_date": "2025-12-04T13:36:57.104881",
+    "fetch_date": "2026-02-15T18:53:41.531768",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 98241000.0,
       "2024-12-31 00:00:00": 116129000.0,
@@ -18,13 +18,12 @@
       "2025-06-30 00:00:00": -0.08,
       "2025-09-30 00:00:00": 0.0
     },
-    "eps_qoq_change": 100.0,
-    "eps_yoy_change": 0,
+    "eps_qoq_change": null,
+    "eps_yoy_change": null,
     "gross_margin": 96.39,
     "margin_change": 9.09,
     "operating_margin": 4.23,
     "quarterly_inventory": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 11378000.0,
       "2024-12-31 00:00:00": 21173000.0,
@@ -36,5 +35,5 @@
     "inventory_to_sales_ratio": 0.228,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T13:36:57.106600"
+  "fetched_at": "2026-02-15T18:53:41.533880"
 }

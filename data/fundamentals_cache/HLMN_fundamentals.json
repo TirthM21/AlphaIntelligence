@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "HLMN",
-    "fetch_date": "2026-01-30T13:41:29.030965",
+    "fetch_date": "2026-02-15T19:16:53.130248",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 393296000.0,
@@ -36,5 +36,5 @@
     "inventory_to_sales_ratio": 1.083,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:41:29.032466"
+  "fetched_at": "2026-02-15T19:16:53.132194"
 }

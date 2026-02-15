@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "AWK",
-    "fetch_date": "2026-01-23T13:11:05.331259",
+    "fetch_date": "2026-02-15T18:55:22.852707",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 1323000000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.075,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-23T13:11:05.332737"
+  "fetched_at": "2026-02-15T18:55:22.854743"
 }

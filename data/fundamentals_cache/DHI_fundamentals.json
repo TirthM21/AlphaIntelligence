@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "DHI",
-    "fetch_date": "2026-01-30T13:31:12.429029",
+    "fetch_date": "2026-02-15T19:06:29.549791",
     "quarterly_revenue": {
       "2024-12-31 00:00:00": 7613000000.0,
       "2025-03-31 00:00:00": 7734000000.0,
@@ -34,5 +34,5 @@
     "inventory_to_sales_ratio": 3.718,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:31:12.430510"
+  "fetched_at": "2026-02-15T19:06:29.551805"
 }

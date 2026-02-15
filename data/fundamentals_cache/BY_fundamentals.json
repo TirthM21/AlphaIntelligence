@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "BY",
-    "fetch_date": "2026-01-30T13:24:26.404413",
+    "fetch_date": "2026-02-15T18:59:30.087298",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 101063000.0,
@@ -26,5 +26,5 @@
     "eps_yoy_change": 10.144927536231894,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:24:26.405033"
+  "fetched_at": "2026-02-15T18:59:30.088352"
 }

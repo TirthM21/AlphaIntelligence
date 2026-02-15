@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "GASS",
-    "fetch_date": "2026-01-30T13:38:06.530276",
+    "fetch_date": "2026-02-15T19:13:28.388447",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 40445006.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.074,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:38:06.531742"
+  "fetched_at": "2026-02-15T19:13:28.390824"
 }

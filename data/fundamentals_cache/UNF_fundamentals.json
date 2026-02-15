@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "UNF",
-    "fetch_date": "2026-01-30T14:13:06.422790",
+    "fetch_date": "2026-02-15T19:49:25.551862",
     "quarterly_revenue": {
       "2024-11-30 00:00:00": 604908000.0,
       "2025-02-28 00:00:00": 602219000.0,
@@ -36,5 +36,5 @@
     "inventory_to_sales_ratio": 0.612,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T14:13:06.424348"
+  "fetched_at": "2026-02-15T19:49:25.553885"
 }

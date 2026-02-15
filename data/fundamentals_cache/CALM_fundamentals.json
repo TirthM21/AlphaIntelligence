@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "CALM",
-    "fetch_date": "2026-02-04T13:29:17.477292",
+    "fetch_date": "2026-02-15T18:59:52.071016",
     "quarterly_revenue": {
       "2024-05-31 00:00:00": NaN,
       "2024-08-31 00:00:00": NaN,
@@ -40,5 +40,5 @@
     "inventory_to_sales_ratio": 0.443,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-02-04T13:29:17.479073"
+  "fetched_at": "2026-02-15T18:59:52.072991"
 }

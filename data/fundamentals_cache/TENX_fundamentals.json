@@ -1,9 +1,8 @@
 {
   "data": {
     "ticker": "TENX",
-    "fetch_date": "2025-12-04T14:14:41.698377",
+    "fetch_date": "2026-02-15T19:46:05.176986",
     "quarterly_revenue": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 0.0,
       "2024-12-31 00:00:00": 0.0,
@@ -11,10 +10,9 @@
       "2025-06-30 00:00:00": 0.0,
       "2025-09-30 00:00:00": 0.0
     },
-    "revenue_qoq_change": 0,
-    "revenue_yoy_change": 0,
+    "revenue_qoq_change": null,
+    "revenue_yoy_change": null,
     "quarterly_eps": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": -1.83,
       "2024-09-30 00:00:00": -0.19,
       "2024-12-31 00:00:00": NaN,
@@ -27,5 +25,5 @@
     "operating_margin": 0,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:14:41.699327"
+  "fetched_at": "2026-02-15T19:46:05.178042"
 }

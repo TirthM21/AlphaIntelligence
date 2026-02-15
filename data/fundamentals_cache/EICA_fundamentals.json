@@ -1,0 +1,13 @@
+{
+  "data": {
+    "ticker": "EICA",
+    "fetch_date": "2026-02-15T19:08:40.977841",
+    "quarterly_revenue": {
+      "2024-06-30 00:00:00": 10529949.0,
+      "2025-06-30 00:00:00": 13984613.0
+    },
+    "revenue_qoq_change": 32.80798416022718,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-15T19:08:40.978440"
+}

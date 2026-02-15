@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "PSMT",
-    "fetch_date": "2026-01-30T14:00:20.824878",
+    "fetch_date": "2026-02-15T19:36:17.208837",
     "quarterly_revenue": {
       "2024-05-31 00:00:00": NaN,
       "2024-08-31 00:00:00": NaN,
@@ -40,5 +40,5 @@
     "inventory_to_sales_ratio": 0.448,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T14:00:20.826364"
+  "fetched_at": "2026-02-15T19:36:17.210843"
 }

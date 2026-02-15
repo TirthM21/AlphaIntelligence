@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "ELE",
-    "fetch_date": "2026-01-30T13:33:31.446216",
+    "fetch_date": "2026-02-15T19:08:53.162525",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 3725000.0,
@@ -27,5 +27,5 @@
     "operating_margin": 26.18,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:33:31.447378"
+  "fetched_at": "2026-02-15T19:08:53.164041"
 }

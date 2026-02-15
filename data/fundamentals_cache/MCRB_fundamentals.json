@@ -1,9 +1,8 @@
 {
   "data": {
     "ticker": "MCRB",
-    "fetch_date": "2025-12-04T13:59:59.110982",
+    "fetch_date": "2026-02-15T19:25:45.227003",
     "quarterly_revenue": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 0.0,
       "2024-12-31 00:00:00": 0.0,
@@ -11,10 +10,9 @@
       "2025-06-30 00:00:00": 0.0,
       "2025-09-30 00:00:00": 0.0
     },
-    "revenue_qoq_change": 0,
-    "revenue_yoy_change": 0,
+    "revenue_qoq_change": null,
+    "revenue_yoy_change": null,
     "quarterly_eps": {
-      "2024-03-31 00:00:00": NaN,
       "2024-06-30 00:00:00": -4.34,
       "2024-09-30 00:00:00": 11.63,
       "2024-12-31 00:00:00": NaN,
@@ -28,7 +26,6 @@
     "margin_change": 0,
     "operating_margin": 0,
     "quarterly_inventory": {
-      "2024-03-31 00:00:00": 41973000.0,
       "2024-06-30 00:00:00": 52997000.0,
       "2024-09-30 00:00:00": NaN,
       "2024-12-31 00:00:00": NaN,
@@ -36,9 +33,9 @@
       "2025-06-30 00:00:00": NaN,
       "2025-09-30 00:00:00": NaN
     },
-    "inventory_qoq_change": NaN,
+    "inventory_qoq_change": null,
     "inventory_to_sales_ratio": 0,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T13:59:59.112582"
+  "fetched_at": "2026-02-15T19:25:45.229084"
 }

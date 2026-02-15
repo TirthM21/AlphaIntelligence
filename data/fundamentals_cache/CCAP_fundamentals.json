@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "CCAP",
-    "fetch_date": "2026-01-30T13:25:26.283056",
+    "fetch_date": "2026-02-15T19:00:29.805247",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 18083000.0,
@@ -24,5 +24,5 @@
     "eps_yoy_change": -53.658536585365844,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:25:26.283797"
+  "fetched_at": "2026-02-15T19:00:29.806140"
 }

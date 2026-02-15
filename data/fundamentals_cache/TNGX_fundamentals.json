@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "TNGX",
-    "fetch_date": "2025-12-04T14:15:27.824813",
+    "fetch_date": "2026-02-15T19:47:03.794849",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 11607000.0,
       "2024-12-31 00:00:00": 4117000.0,
@@ -23,5 +23,5 @@
     "operating_margin": 26.15,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:15:27.825800"
+  "fetched_at": "2026-02-15T19:47:03.795989"
 }

@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "GPC",
-    "fetch_date": "2026-01-30T13:39:39.718869",
+    "fetch_date": "2026-02-15T19:15:02.246825",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 5970198000.0,
       "2024-12-31 00:00:00": 5770173000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 0.938,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:39:39.720342"
+  "fetched_at": "2026-02-15T19:15:02.248974"
 }

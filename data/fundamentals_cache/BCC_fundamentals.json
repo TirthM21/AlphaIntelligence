@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "BCC",
-    "fetch_date": "2026-01-30T13:21:24.296244",
+    "fetch_date": "2026-02-15T18:56:17.429207",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 1713724000.0,
       "2024-12-31 00:00:00": 1567480000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 0.506,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:21:24.297688"
+  "fetched_at": "2026-02-15T18:56:17.431214"
 }

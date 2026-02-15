@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "DNTH",
-    "fetch_date": "2025-12-04T13:46:25.133674",
+    "fetch_date": "2026-02-15T19:06:57.273283",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 2172000.0,
       "2024-12-31 00:00:00": 1326000.0,
@@ -23,5 +23,5 @@
     "operating_margin": -10173.74,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T13:46:25.134651"
+  "fetched_at": "2026-02-15T19:06:57.274549"
 }

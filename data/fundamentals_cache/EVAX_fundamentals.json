@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "EVAX",
-    "fetch_date": "2025-12-04T13:48:39.883054",
+    "fetch_date": "2026-02-15T19:10:04.782401",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 3017000.0,
@@ -25,5 +25,5 @@
     "operating_margin": 40.35,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T13:48:39.884008"
+  "fetched_at": "2026-02-15T19:10:04.783597"
 }

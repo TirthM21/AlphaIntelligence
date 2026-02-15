@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "ONTF",
-    "fetch_date": "2025-12-04T14:04:51.757945",
+    "fetch_date": "2026-02-15T19:32:22.281127",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 36325000.0,
@@ -27,5 +27,5 @@
     "operating_margin": -23.09,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2025-12-04T14:04:51.759159"
+  "fetched_at": "2026-02-15T19:32:22.282648"
 }

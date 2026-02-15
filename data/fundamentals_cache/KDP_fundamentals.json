@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "KDP",
-    "fetch_date": "2026-02-04T13:50:06.786274",
+    "fetch_date": "2026-02-15T19:21:17.156156",
     "quarterly_revenue": {
       "2024-06-30 00:00:00": NaN,
       "2024-09-30 00:00:00": 3891000000.0,
@@ -37,5 +37,5 @@
     "inventory_to_sales_ratio": 0.427,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-02-04T13:50:06.788288"
+  "fetched_at": "2026-02-15T19:21:17.158177"
 }

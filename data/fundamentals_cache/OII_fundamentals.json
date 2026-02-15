@@ -1,7 +1,7 @@
 {
   "data": {
     "ticker": "OII",
-    "fetch_date": "2026-01-30T13:55:59.741575",
+    "fetch_date": "2026-02-15T19:31:53.296591",
     "quarterly_revenue": {
       "2024-09-30 00:00:00": 679811000.0,
       "2024-12-31 00:00:00": 713450000.0,
@@ -35,5 +35,5 @@
     "inventory_to_sales_ratio": 0.294,
     "inventory_breakdown_available": false
   },
-  "fetched_at": "2026-01-30T13:55:59.743022"
+  "fetched_at": "2026-02-15T19:31:53.298545"
 }

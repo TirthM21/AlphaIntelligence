@@ -35,17 +35,22 @@ class PerformanceTracker:
     def spy_price(self) -> float:
         """Get current SPY price (cached per session)."""
         if self._spy_price is None:
-            try:
-                spy = yf.Ticker("SPY")
-                hist = spy.history(period="2d")
-                if not hist.empty:
-                    self._spy_price = hist['Close'].iloc[-1]
-                else:
-                    self._spy_price = 0.0
-            except Exception as e:
-                logger.warning(f"Could not fetch SPY price: {e}")
-                self._spy_price = 0.0
-        return self._spy_price
+            import time
+            for attempt in range(3):
+                try:
+                    # Use a very small period to minimize data transfer
+                    spy = yf.Ticker("SPY")
+                    hist = spy.history(period="1d")
+                    if not hist.empty:
+                        self._spy_price = float(hist['Close'].iloc[-1])
+                        break
+                    time.sleep(1)
+                except Exception as e:
+                    if attempt == 2:
+                        logger.warning(f"Could not fetch SPY price after 3 attempts: {e}")
+                        self._spy_price = 0.0
+                    time.sleep(2)
+        return self._spy_price or 0.0
 
     def process_signals(self, buy_signals: List[Dict], sell_signals: List[Dict],
                         spy_price: float = None):

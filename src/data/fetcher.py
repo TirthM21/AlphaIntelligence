@@ -133,7 +133,7 @@ class YahooFinanceFetcher:
             logger.warning(f"Failed to save cache {cache_path.name}: {e}")
 
     def _fetch_with_retry(self, ticker: str) -> Optional[yf.Ticker]:
-        """Fetch ticker data with retry logic.
+        """Fetch ticker data with recursive exponential backoff.
 
         Args:
             ticker: Stock ticker symbol.
@@ -144,15 +144,17 @@ class YahooFinanceFetcher:
         for attempt in range(self.max_retries):
             try:
                 stock = yf.Ticker(ticker)
-                # Test if ticker is valid by accessing info
-                _ = stock.info
+                # DO NOT access .info here - it's a separate, slow, and heavily throttled API call.
+                # yfinance will fetch price data just fine without it.
                 return stock
             except Exception as e:
+                # Exponential backoff: 2s, 4s, 8s...
+                delay = self.retry_delay * (2 ** attempt)
                 logger.warning(
-                    f"Attempt {attempt + 1}/{self.max_retries} failed for {ticker}: {e}"
+                    f"Attempt {attempt + 1}/{self.max_retries} failed for {ticker}: {e}. Retrying in {delay}s..."
                 )
                 if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay)
+                    time.sleep(delay)
                 else:
                     logger.error(f"Failed to fetch {ticker} after {self.max_retries} attempts")
                     return None
@@ -348,6 +350,111 @@ class YahooFinanceFetcher:
         )
 
         return fundamentals_df, prices_df
+
+    def fetch_batch_prices(
+        self,
+        tickers: List[str],
+        period: str = "5y",
+        interval: str = "1d"
+    ) -> Dict[str, pd.DataFrame]:
+        """Fetch price history for multiple tickers in a single batch request.
+        
+        This is MUCH more efficient and less likely to trigger rate limits than
+        fetching tickers individually.
+
+        Args:
+            tickers: List of stock ticker symbols.
+            period: Time period (default: '5y').
+            interval: Data interval (default: '1d').
+
+        Returns:
+            Dictionary mapping ticker to its price DataFrame.
+        """
+        if not tickers:
+            return {}
+
+        logger.info(f"Batch fetching prices for {len(tickers)} tickers (period={period})")
+        
+        # Filter out tickers already in cache for this specific period/interval
+        cache_ready = {}
+        to_fetch = []
+        
+        for ticker in tickers:
+            cache_path = self._get_cache_path(ticker, f'prices_{period}_{interval}')
+            if self._is_cache_valid(cache_path):
+                cached = self._load_from_cache(cache_path)
+                if cached is not None and isinstance(cached, pd.DataFrame):
+                    cache_ready[ticker] = cached
+                else:
+                    to_fetch.append(ticker)
+            else:
+                to_fetch.append(ticker)
+
+        if not to_fetch:
+            logger.info(f"All {len(tickers)} tickers found in cache.")
+            return cache_ready
+
+        results = cache_ready.copy()
+        
+        # Process in chunks of 50 to avoid URL length limits and very large responses
+        chunk_size = 50
+        for i in range(0, len(to_fetch), chunk_size):
+            chunk = to_fetch[i:i + chunk_size]
+            logger.info(f"Requesting batch chunk {i//chunk_size + 1}: {len(chunk)} tickers")
+            
+            try:
+                # yf.download is the optimized batch method
+                data = yf.download(
+                    tickers=" ".join(chunk),
+                    period=period,
+                    interval=interval,
+                    group_by='ticker',
+                    threads=True,
+                    progress=False
+                )
+                
+                if data.empty:
+                    logger.warning(f"Batch request for chunk {i} returned no data")
+                    continue
+
+                for ticker in chunk:
+                    try:
+                        if len(chunk) == 1:
+                            ticker_data = data
+                        else:
+                            ticker_data = data[ticker]
+                        
+                        if ticker_data.empty:
+                            continue
+                            
+                        # Clean up
+                        ticker_data.columns = [col.capitalize() for col in ticker_data.columns]
+                        available_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                        ticker_data = ticker_data[[col for col in available_cols if col in ticker_data.columns]]
+                        ticker_data = ticker_data.dropna(subset=['Close'])
+                        
+                        if not ticker_data.empty:
+                            results[ticker] = ticker_data
+                            # Save individual cache for future use
+                            cache_path = self._get_cache_path(ticker, f'prices_{period}_{interval}')
+                            self._save_to_cache(ticker_data, cache_path)
+                            
+                    except Exception as e:
+                        logger.debug(f"Failed to extract {ticker} from batch: {e}")
+                        
+                # Small courtesy delay between chunks
+                if i + chunk_size < len(to_fetch):
+                    time.sleep(1)
+
+            except Exception as e:
+                logger.error(f"Batch fetch failed for chunk starting with {chunk[0]}: {e}")
+                # Fallback to individual fetches for this chunk if batch fails
+                for ticker in chunk:
+                    res = self.fetch_price_history(ticker, period=period, interval=interval)
+                    if not res.empty:
+                        results[ticker] = res
+
+        return results
 
     def clear_cache(self, ticker: Optional[str] = None) -> None:
         """Clear cached data.

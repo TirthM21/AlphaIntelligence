@@ -212,19 +212,16 @@ class OptimizedBatchProcessor:
             # Fetch price history (5 years to check drawdown, use last 1y for analysis)
             # This is more efficient than two separate fetches
             if self.use_git_storage and self.git_fetcher:
-                # Git fetcher only does 1y, fetch 5y for drawdown check first
-                import yfinance as yf
-                long_hist = yf.Ticker(ticker).history(period='5y', interval='1d')
-
-                if not long_hist.empty:
-                    # Use last 1 year for technical analysis
-                    price_data = long_hist.tail(252) if len(long_hist) > 252 else long_hist
+                # Use git fetcher for 1y fresh data
+                price_data = self.git_fetcher.fetch_price_fresh(ticker)
+                
+                # Still need 5y for drawdown check if not in price_data
+                if len(price_data) < 756: # Less than ~3 years
+                     long_hist = self.fetcher.fetch_price_history(ticker, period='5y')
                 else:
-                    # Fallback to git fetcher if 5y fails
-                    price_data = self.git_fetcher.fetch_price_fresh(ticker)
-                    long_hist = price_data
+                     long_hist = price_data
             else:
-                # Regular fetcher - fetch 5y once
+                # Regular fetcher - fetch 5y once (will hit disk cache if pre-fetched)
                 long_hist = self.fetcher.fetch_price_history(ticker, period='5y')
                 if not long_hist.empty:
                     # Use last 1 year for technical analysis
@@ -399,6 +396,10 @@ class OptimizedBatchProcessor:
         remaining = [t for t in tickers if t not in self.processed_tickers]
         logger.info(f"Processing {len(remaining)} remaining tickers")
 
+        # --- NEW: Pre-fetch price data in batches to avoid rate limits ---
+        # This populates the disk cache so threads just read from disk
+        self.pre_fetch_prices(remaining)
+
         start_time = time.time()
         all_analyses = self.current_results.copy()
         phase_results = []
@@ -520,3 +521,28 @@ class OptimizedBatchProcessor:
         self.processed_tickers.clear()
         self.current_results.clear()
         logger.info("Progress cleared")
+
+    def pre_fetch_prices(self, tickers: List[str], batch_size: int = 500):
+        """Pre-fetch price data for a list of tickers in large batches.
+        
+        This populates the disk cache before the parallel analysis starts,
+        drastically reducing individual API calls.
+        """
+        logger.info(f"🚀 Pre-fetching prices for {len(tickers)} tickers in batches of {batch_size}...")
+        
+        # We only need to pre-fetch if we are NOT using only Git storage 
+        # (though even with Git storage, 5y history is needed for drawdown)
+        for i in range(0, len(tickers), batch_size):
+            chunk = tickers[i:i + batch_size]
+            logger.info(f"  Pre-fetch chunk {i//batch_size + 1}/{(len(tickers)-1)//batch_size + 1}")
+            try:
+                # This will populate the disk cache
+                self.fetcher.fetch_batch_prices(chunk, period='5y')
+            except Exception as e:
+                logger.warning(f"  Failed pre-fetch chunk: {e}")
+            
+            # Small delay between large batches
+            if i + batch_size < len(tickers):
+                time.sleep(2)
+        
+        logger.info("✅ Pre-fetching complete. Parallel analysis will now use disk cache.")

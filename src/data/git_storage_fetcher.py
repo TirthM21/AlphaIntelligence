@@ -42,38 +42,47 @@ class GitStorageFetcher:
         self.metadata_file = self.fundamentals_dir / "metadata.json"
         logger.info(f"GitStorageFetcher initialized: {fundamentals_dir}")
 
-    def fetch_price_fresh(self, ticker: str) -> pd.DataFrame:
+    def fetch_price_fresh(self, ticker: str, max_retries: int = 3) -> pd.DataFrame:
         """Fetch fresh price data (1 year, no caching).
 
         Always fetches latest data to ensure current prices are included.
+        Includes retry logic with backoff to handle rate limits.
 
         Args:
             ticker: Stock ticker
+            max_retries: Number of retries
 
         Returns:
             DataFrame with ~250 days of price data (DatetimeIndex)
         """
-        try:
-            stock = yf.Ticker(ticker)
-            # Always fetch 1 year (250 trading days) - not 2 years!
-            data = stock.history(period='1y', interval='1d')
+        for attempt in range(max_retries):
+            try:
+                # Add a small delay between fresh fetches to avoid spamming
+                # Especially important when called in parallel threads
+                time.sleep(0.5) 
 
-            if not data.empty:
-                # Verify DatetimeIndex (yfinance should return this by default)
-                if not isinstance(data.index, pd.DatetimeIndex):
-                    logger.warning(f"{ticker}: yfinance returned non-DatetimeIndex: {type(data.index)}")
-                    # This shouldn't happen, but log it if it does
-                    return pd.DataFrame()
+                stock = yf.Ticker(ticker)
+                # DO NOT use stock.info, it's a separate slow request
+                data = stock.history(period='1y', interval='1d')
 
-                logger.debug(f"{ticker}: Fetched {len(data)} days (fresh)")
-                return data
-            else:
-                logger.warning(f"{ticker}: No price data returned")
-                return pd.DataFrame()
-
-        except Exception as e:
-            logger.error(f"{ticker}: Price fetch failed: {e}")
-            return pd.DataFrame()
+                if not data.empty:
+                    if not isinstance(data.index, pd.DatetimeIndex):
+                        logger.warning(f"{ticker}: yfinance returned non-DatetimeIndex: {type(data.index)}")
+                        return pd.DataFrame()
+                    return data
+                
+                logger.warning(f"{ticker}: No price data returned (Attempt {attempt+1})")
+            
+            except Exception as e:
+                delay = 2 * (2 ** attempt)
+                logger.warning(f"{ticker}: Price fetch failed (Attempt {attempt+1}): {e}. Retrying in {delay}s...")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(delay)
+                else:
+                    logger.error(f"{ticker}: Price fetch failed after {max_retries} attempts")
+        
+        return pd.DataFrame()
 
     def fetch_fundamentals_smart(self, ticker: str) -> Dict:
         """Fetch fundamentals with Git-based caching.

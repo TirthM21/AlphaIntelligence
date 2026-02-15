@@ -10,7 +10,8 @@ This module fetches detailed quarterly financial metrics including:
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
-
+import time
+import math
 import yfinance as yf
 import pandas as pd
 
@@ -30,133 +31,138 @@ def fetch_quarterly_financials(ticker: str) -> Dict[str, any]:
     Returns:
         Dict with quarterly financial metrics
     """
-    try:
-        stock = yf.Ticker(ticker)
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(ticker)
 
-        # Get quarterly financials
-        quarterly_income = stock.quarterly_financials
-        quarterly_balance = stock.quarterly_balance_sheet
-        quarterly_cashflow = stock.quarterly_cashflow
+            # Get quarterly financials - these are individual API calls, so delay between them
+            quarterly_income = stock.quarterly_financials
+            time.sleep(0.3)
+            quarterly_balance = stock.quarterly_balance_sheet
+            time.sleep(0.3)
+            quarterly_cashflow = stock.quarterly_cashflow
 
-        if quarterly_income.empty:
-            logger.warning(f"No quarterly income data for {ticker}")
-            return {}
+            if quarterly_income.empty:
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                logger.warning(f"No quarterly income data for {ticker}")
+                return {}
+            
+            # Successfully fetched data, now process it
+            result = {
+                'ticker': ticker,
+                'fetch_date': datetime.now().isoformat()
+            }
 
-        result = {
-            'ticker': ticker,
-            'fetch_date': datetime.now().isoformat()
-        }
-
-        # Get quarterly revenue (Total Revenue)
-        if 'Total Revenue' in quarterly_income.index:
-            revenues = quarterly_income.loc['Total Revenue'].sort_index()
-            result['quarterly_revenue'] = revenues.to_dict()
-
-            if len(revenues) >= 2:
-                latest_rev = revenues.iloc[-1]
-                prev_rev = revenues.iloc[-2]
-                # Check for NaN values - treat as missing data
-                import math
-                if not math.isnan(latest_rev) and not math.isnan(prev_rev) and prev_rev != 0 and latest_rev != 0:
-                    result['revenue_qoq_change'] = ((latest_rev - prev_rev) / prev_rev * 100)
-                else:
-                    result['revenue_qoq_change'] = None
-
-            if len(revenues) >= 5:
-                latest_rev = revenues.iloc[-1]
-                yoy_rev = revenues.iloc[-5]
-                # Check for NaN or 0 values - treat as missing data
-                import math
-                if not math.isnan(latest_rev) and not math.isnan(yoy_rev) and yoy_rev != 0 and latest_rev != 0:
-                    result['revenue_yoy_change'] = ((latest_rev - yoy_rev) / yoy_rev * 100)
-                else:
-                    result['revenue_yoy_change'] = None  # Explicitly mark as missing
-
-        # Get quarterly EPS (Basic EPS or Diluted EPS)
-        eps_key = None
-        if 'Diluted EPS' in quarterly_income.index:
-            eps_key = 'Diluted EPS'
-        elif 'Basic EPS' in quarterly_income.index:
-            eps_key = 'Basic EPS'
-
-        if eps_key:
-            eps_values = quarterly_income.loc[eps_key].sort_index()
-            result['quarterly_eps'] = eps_values.to_dict()
-
-            if len(eps_values) >= 2:
-                latest_eps = eps_values.iloc[-1]
-                prev_eps = eps_values.iloc[-2]
-                # Check for NaN values - treat as missing data
-                import math
-                if not math.isnan(latest_eps) and not math.isnan(prev_eps) and prev_eps != 0 and latest_eps != 0:
-                    result['eps_qoq_change'] = ((latest_eps - prev_eps) / abs(prev_eps) * 100)
-                else:
-                    result['eps_qoq_change'] = None
-
-            if len(eps_values) >= 5:
-                latest_eps = eps_values.iloc[-1]
-                yoy_eps = eps_values.iloc[-5]
-                import math
-                if not math.isnan(latest_eps) and not math.isnan(yoy_eps) and yoy_eps != 0:
-                    result['eps_yoy_change'] = ((latest_eps - yoy_eps) / abs(yoy_eps) * 100)
-                else:
-                    result['eps_yoy_change'] = None  # Explicitly mark as missing
-
-        # Get gross profit margin
-        if 'Gross Profit' in quarterly_income.index and 'Total Revenue' in quarterly_income.index:
-            gross_profit = quarterly_income.loc['Gross Profit'].sort_index()
-            revenue = quarterly_income.loc['Total Revenue'].sort_index()
-
-            if len(gross_profit) > 0 and len(revenue) > 0:
-                latest_margin = (gross_profit.iloc[-1] / revenue.iloc[-1] * 100) if revenue.iloc[-1] != 0 else 0
-                result['gross_margin'] = round(latest_margin, 2)
-
-                if len(gross_profit) >= 2:
-                    prev_margin = (gross_profit.iloc[-2] / revenue.iloc[-2] * 100) if revenue.iloc[-2] != 0 else 0
-                    result['margin_change'] = round(latest_margin - prev_margin, 2)
-
-        # Get operating margin
-        if 'Operating Income' in quarterly_income.index and 'Total Revenue' in quarterly_income.index:
-            operating_income = quarterly_income.loc['Operating Income'].sort_index()
-            revenue = quarterly_income.loc['Total Revenue'].sort_index()
-
-            if len(operating_income) > 0 and len(revenue) > 0:
-                latest_op_margin = (operating_income.iloc[-1] / revenue.iloc[-1] * 100) if revenue.iloc[-1] != 0 else 0
-                result['operating_margin'] = round(latest_op_margin, 2)
-
-        # Get inventory data from balance sheet
-        if not quarterly_balance.empty and 'Inventory' in quarterly_balance.index:
-            inventory = quarterly_balance.loc['Inventory'].sort_index()
-            result['quarterly_inventory'] = inventory.to_dict()
-
-            if len(inventory) >= 2:
-                latest_inv = inventory.iloc[-1]
-                prev_inv = inventory.iloc[-2]
-                import math
-                if not math.isnan(latest_inv) and not math.isnan(prev_inv) and prev_inv != 0 and latest_inv != 0:
-                    inv_change = ((latest_inv - prev_inv) / prev_inv * 100)
-                    result['inventory_qoq_change'] = round(inv_change, 2)
-                else:
-                    result['inventory_qoq_change'] = None  # Explicitly mark as missing
-
-            # Calculate inventory to sales ratio
+            # Get quarterly revenue (Total Revenue)
             if 'Total Revenue' in quarterly_income.index:
                 revenues = quarterly_income.loc['Total Revenue'].sort_index()
-                if len(revenues) > 0:
-                    latest_inv = inventory.iloc[-1]
+                result['quarterly_revenue'] = revenues.to_dict()
+
+                if len(revenues) >= 2:
                     latest_rev = revenues.iloc[-1]
-                    inv_to_sales = (latest_inv / latest_rev) if latest_rev != 0 else 0
-                    result['inventory_to_sales_ratio'] = round(inv_to_sales, 3)
+                    prev_rev = revenues.iloc[-2]
+                    if not math.isnan(latest_rev) and not math.isnan(prev_rev) and prev_rev != 0 and latest_rev != 0:
+                        result['revenue_qoq_change'] = ((latest_rev - prev_rev) / prev_rev * 100)
+                    else:
+                        result['revenue_qoq_change'] = None
 
-        # Try to get inventory breakdown (not always available in yfinance)
-        # This is a limitation - detailed inventory breakdown often requires premium data
-        result['inventory_breakdown_available'] = False
+                if len(revenues) >= 5:
+                    latest_rev = revenues.iloc[-1]
+                    yoy_rev = revenues.iloc[-5]
+                    if not math.isnan(latest_rev) and not math.isnan(yoy_rev) and yoy_rev != 0 and latest_rev != 0:
+                        result['revenue_yoy_change'] = ((latest_rev - yoy_rev) / yoy_rev * 100)
+                    else:
+                        result['revenue_yoy_change'] = None
 
-        return result
+            # Get quarterly EPS (Basic EPS or Diluted EPS)
+            eps_key = None
+            if 'Diluted EPS' in quarterly_income.index:
+                eps_key = 'Diluted EPS'
+            elif 'Basic EPS' in quarterly_income.index:
+                eps_key = 'Basic EPS'
 
-    except Exception as e:
-        logger.error(f"Error fetching quarterly financials for {ticker}: {e}")
-        return {}
+            if eps_key:
+                eps_values = quarterly_income.loc[eps_key].sort_index()
+                result['quarterly_eps'] = eps_values.to_dict()
+
+                if len(eps_values) >= 2:
+                    latest_eps = eps_values.iloc[-1]
+                    prev_eps = eps_values.iloc[-2]
+                    if not math.isnan(latest_eps) and not math.isnan(prev_eps) and prev_eps != 0 and latest_eps != 0:
+                        result['eps_qoq_change'] = ((latest_eps - prev_eps) / abs(prev_eps) * 100)
+                    else:
+                        result['eps_qoq_change'] = None
+
+                if len(eps_values) >= 5:
+                    latest_eps = eps_values.iloc[-1]
+                    yoy_eps = eps_values.iloc[-5]
+                    if not math.isnan(latest_eps) and not math.isnan(yoy_eps) and yoy_eps != 0:
+                        result['eps_yoy_change'] = ((latest_eps - yoy_eps) / abs(yoy_eps) * 100)
+                    else:
+                        result['eps_yoy_change'] = None
+
+            # Get gross profit margin
+            if 'Gross Profit' in quarterly_income.index and 'Total Revenue' in quarterly_income.index:
+                gross_profit = quarterly_income.loc['Gross Profit'].sort_index()
+                revenue = quarterly_income.loc['Total Revenue'].sort_index()
+
+                if len(gross_profit) > 0 and len(revenue) > 0:
+                    latest_margin = (gross_profit.iloc[-1] / revenue.iloc[-1] * 100) if revenue.iloc[-1] != 0 else 0
+                    result['gross_margin'] = round(latest_margin, 2)
+
+                    if len(gross_profit) >= 2:
+                        prev_margin = (gross_profit.iloc[-2] / revenue.iloc[-2] * 100) if revenue.iloc[-2] != 0 else 0
+                        result['margin_change'] = round(latest_margin - prev_margin, 2)
+
+            # Get operating margin
+            if 'Operating Income' in quarterly_income.index and 'Total Revenue' in quarterly_income.index:
+                operating_income = quarterly_income.loc['Operating Income'].sort_index()
+                revenue = quarterly_income.loc['Total Revenue'].sort_index()
+
+                if len(operating_income) > 0 and len(revenue) > 0:
+                    latest_op_margin = (operating_income.iloc[-1] / revenue.iloc[-1] * 100) if revenue.iloc[-1] != 0 else 0
+                    result['operating_margin'] = round(latest_op_margin, 2)
+
+            # Get inventory data from balance sheet
+            if not quarterly_balance.empty and 'Inventory' in quarterly_balance.index:
+                inventory = quarterly_balance.loc['Inventory'].sort_index()
+                result['quarterly_inventory'] = inventory.to_dict()
+
+                if len(inventory) >= 2:
+                    latest_inv = inventory.iloc[-1]
+                    prev_inv = inventory.iloc[-2]
+                    if not math.isnan(latest_inv) and not math.isnan(prev_inv) and prev_inv != 0 and latest_inv != 0:
+                        inv_change = ((latest_inv - prev_inv) / prev_inv * 100)
+                        result['inventory_qoq_change'] = round(inv_change, 2)
+                    else:
+                        result['inventory_qoq_change'] = None
+
+                # Calculate inventory to sales ratio
+                if 'Total Revenue' in quarterly_income.index:
+                    revenues = quarterly_income.loc['Total Revenue'].sort_index()
+                    if len(revenues) > 0:
+                        latest_inv = inventory.iloc[-1]
+                        latest_rev = revenues.iloc[-1]
+                        inv_to_sales = (latest_inv / latest_rev) if latest_rev != 0 else 0
+                        result['inventory_to_sales_ratio'] = round(inv_to_sales, 3)
+
+            result['inventory_breakdown_available'] = False
+            return result
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = 2 * (2 ** attempt)
+                logger.warning(f"Attempt {attempt + 1} failed for {ticker} financials: {e}. Retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                logger.error(f"Error fetching quarterly financials for {ticker} after {max_retries} attempts: {e}")
+                return {}
+    
+    return {}
 
 
 def create_fundamental_snapshot(ticker: str, quarterly_data: Dict) -> str:
@@ -285,16 +291,10 @@ def create_fundamental_snapshot(ticker: str, quarterly_data: Dict) -> str:
         else:
             snapshot += f"✓ Inventory: DRAWING ({inv_change:.1f}% QoQ, ratio: {inv_to_sales:.2f})\n"
             snapshot += "  → Strong demand signal\n"
-    # Don't show anything if inventory data missing - many companies don't track inventory
-
-        if not quarterly_data.get('inventory_breakdown_available', False):
-            snapshot += "  Note: Detailed breakdown (raw/WIP/finished) not available via API\n"
 
     # Overall assessment
     snapshot += "\n"
     snapshot += "Overall Assessment:\n"
-
-    # Determine if fundamentals support technical breakout
     supports_breakout = True
     concerns = []
 
@@ -340,17 +340,10 @@ def analyze_fundamentals_for_signal(quarterly_data: Dict) -> Dict[str, any]:
             'penalty_points': 10
         }
 
-    revenue_yoy = quarterly_data.get('revenue_yoy_change')
-    if revenue_yoy is None: revenue_yoy = 0
-    
-    revenue_qoq = quarterly_data.get('revenue_qoq_change')
-    if revenue_qoq is None: revenue_qoq = 0
-    
-    eps_yoy = quarterly_data.get('eps_yoy_change')
-    if eps_yoy is None: eps_yoy = 0
-    
-    inv_change = quarterly_data.get('inventory_qoq_change')
-    if inv_change is None: inv_change = 0
+    revenue_yoy = quarterly_data.get('revenue_yoy_change', 0)
+    revenue_qoq = quarterly_data.get('revenue_qoq_change', 0)
+    eps_yoy = quarterly_data.get('eps_yoy_change', 0)
+    inv_change = quarterly_data.get('inventory_qoq_change', 0)
 
     # Assess trends
     if revenue_yoy > 10:
@@ -378,32 +371,20 @@ def analyze_fundamentals_for_signal(quarterly_data: Dict) -> Dict[str, any]:
     else:
         inventory_signal = 'neutral'
 
-    # Check for sequential revenue decline (most recent quarter vs previous quarter)
-    sequential_revenue_declining = False
-    if revenue_qoq is not None and revenue_qoq < -2:
-        sequential_revenue_declining = True
+    sequential_revenue_declining = (revenue_qoq is not None and revenue_qoq < -2)
 
-    # Determine if fundamentals support breakout
     supports_breakout = (
         revenue_trend in ['accelerating', 'growing'] and
         eps_trend in ['accelerating', 'growing'] and
         inventory_signal != 'negative' and
-        not sequential_revenue_declining  # Don't support if revenue declining sequentially
+        not sequential_revenue_declining
     )
 
-    # Calculate penalty
     penalty = 0
-    if revenue_trend == 'deteriorating':
-        penalty += 5
-    if eps_trend == 'deteriorating':
-        penalty += 5
-    if inventory_signal == 'negative':
-        penalty += 5
-
-    # STRONG PENALTY for sequential revenue decline >2%
-    # This is a red flag - company losing momentum
-    if sequential_revenue_declining:
-        penalty += 15  # Strong penalty (3x normal)
+    if revenue_trend == 'deteriorating': penalty += 5
+    if eps_trend == 'deteriorating': penalty += 5
+    if inventory_signal == 'negative': penalty += 5
+    if sequential_revenue_declining: penalty += 15
 
     return {
         'revenue_trend': revenue_trend,

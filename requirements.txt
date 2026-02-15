@@ -10,3 +10,11 @@ slack-sdk>=3.26.0
 pyyaml>=6.0
 numpy>=1.24.0
 sec-edgar-downloader>=4.3.0
+openai>=1.12.0
+pyrate-limiter>=2.10.0
+ndg-httpsclient
+pyopenssl
+pyasn1
+fredapi>=0.5.1
+marketaux>=0.0.2
+finnhub-python>=2.4.19

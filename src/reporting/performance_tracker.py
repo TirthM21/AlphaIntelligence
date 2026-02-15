@@ -7,6 +7,7 @@ Tracks hedge fund performance by:
 """
 
 import logging
+import time
 import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -35,7 +36,6 @@ class PerformanceTracker:
     def spy_price(self) -> float:
         """Get current SPY price (cached per session)."""
         if self._spy_price is None:
-            import time
             for attempt in range(3):
                 try:
                     # Use a very small period to minimize data transfer

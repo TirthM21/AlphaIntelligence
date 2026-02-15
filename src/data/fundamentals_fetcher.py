@@ -8,9 +8,9 @@ This module fetches detailed quarterly financial metrics including:
 """
 
 import logging
+import time
 from typing import Dict, List, Optional
 from datetime import datetime
-import time
 import math
 import yfinance as yf
 import pandas as pd

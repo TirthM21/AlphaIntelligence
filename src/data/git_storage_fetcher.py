@@ -13,6 +13,7 @@ Reduces API calls by 74% while ensuring:
 
 import json
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -77,7 +78,6 @@ class GitStorageFetcher:
                 delay = 2 * (2 ** attempt)
                 logger.warning(f"{ticker}: Price fetch failed (Attempt {attempt+1}): {e}. Retrying in {delay}s...")
                 if attempt < max_retries - 1:
-                    import time
                     time.sleep(delay)
                 else:
                     logger.error(f"{ticker}: Price fetch failed after {max_retries} attempts")

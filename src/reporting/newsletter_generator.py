@@ -67,6 +67,34 @@ class NewsletterGenerator:
         econ_calendar = []
         trending_entities = []
         earnings_cal = []
+
+        def _clean_news_item(item: Dict) -> Optional[Dict]:
+            title = (item.get('title') or '').strip()
+            url = (item.get('url') or '').strip()
+            if not title or not url:
+                return None
+            return {
+                'title': title,
+                'url': url,
+                'site': (item.get('site') or 'News').strip(),
+                'summary': (item.get('summary') or '').strip()
+            }
+
+        def _dedupe_news(items: List[Dict], limit: int = 10) -> List[Dict]:
+            seen = set()
+            output = []
+            for raw in items:
+                cleaned = _clean_news_item(raw)
+                if not cleaned:
+                    continue
+                key = (cleaned['title'].lower(), cleaned['url'])
+                if key in seen:
+                    continue
+                seen.add(key)
+                output.append(cleaned)
+                if len(output) >= limit:
+                    break
+            return output
         
         # 2. Try Finnhub & Marketaux NEWS first (Higher quality)
         if self.finnhub.api_key:
@@ -138,7 +166,7 @@ class NewsletterGenerator:
                             val_f = float(val) if val != '.' else 0
                             p_val_f = float(p_val) if p_val != '.' else 0
                             trend = "Up" if val_f > p_val_f else "Down"
-                        except:
+                        except (TypeError, ValueError):
                             trend = "Stable"
                             
                         econ_data[name] = {
@@ -190,6 +218,8 @@ class NewsletterGenerator:
             except Exception as e:
                 logger.error(f"News fallback failed: {e}")
 
+        market_news = _dedupe_news(market_news, limit=12)
+
         if not portfolio_news and portfolio_tickers:
             try:
                 for t in portfolio_tickers[:5]:
@@ -215,6 +245,7 @@ class NewsletterGenerator:
         # 3. Dynamic Sector & Cap Analysis
         sector_perf = []
         cap_perf = {}
+        index_perf = {}
         if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
             try:
                 sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
@@ -234,6 +265,16 @@ class NewsletterGenerator:
                     cap_perf[label] = round(change, 2)
         except Exception as e:
             logger.error(f"Cap perf check failed: {e}")
+
+        # Major index snapshot (PRISM-style early tape)
+        try:
+            for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
+                hist = yf.Ticker(symbol).history(period='2d')
+                if len(hist) >= 2:
+                    move = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                    index_perf[label] = round(move, 2)
+        except Exception as e:
+            logger.error(f"Index performance check failed: {e}")
 
         # 4. Generate Charts
         sector_chart_path = ""
@@ -302,17 +343,29 @@ class NewsletterGenerator:
             content.append(f"- **% of Universe Above 200 SMA:** {pct_above_200:.1f}%")
         content.append("")
         
-        spy_change = cap_perf.get('Large Cap', 0)
-        qqq_change = 0
-        try:
-            qqq = yf.Ticker('QQQ').history(period='2d')
-            if len(qqq) >= 2:
-                qqq_change = round(((qqq['Close'].iloc[-1] / qqq['Close'].iloc[-2]) - 1) * 100, 2)
-        except: pass
+        content.append("### Market Mood")
+        mood_driver = "Balanced risk appetite with mixed conviction"
+        if sentiment_score >= 60:
+            mood_driver = "Risk-on posture with broad participation"
+        elif sentiment_score <= 40:
+            mood_driver = "Risk-off posture with defensive bias"
+        content.append(f"- **Desk Take:** {mood_driver}.")
+        content.append("")
 
-        content.append("### Early Tape")
-        content.append(f"- **S&P 500 (SPY):** {'▲' if spy_change > 0 else '▼'} {spy_change:+.2f}%")
-        content.append(f"- **NASDAQ (QQQ):** {'▲' if qqq_change > 0 else '▼'} {qqq_change:+.2f}%")
+        if index_perf:
+            content.append("### Early Tape")
+            content.append("| Index | Move |")
+            content.append("|---|---:|")
+            for label, move in index_perf.items():
+                arrow = "▲" if move > 0 else "▼"
+                content.append(f"| {label} | {arrow} {move:+.2f}% |")
+            content.append("")
+
+        if cap_perf:
+            content.append("### Market-Cap Leadership")
+            sorted_caps = sorted(cap_perf.items(), key=lambda x: x[1], reverse=True)
+            for label, move in sorted_caps:
+                content.append(f"- **{label}:** {'▲' if move > 0 else '▼'} {move:+.2f}%")
         content.append("")
 
         # --- SECTION: MACRO PULSE (NEW: FRED DATA) ---
@@ -326,9 +379,17 @@ class NewsletterGenerator:
         # --- SECTION: SECTOR PERFORMANCE ---
         if sector_perf:
             content.append("### Sector Performance")
-            for s in sector_perf[:8]:
+            leaders = sector_perf[:3]
+            laggards = list(reversed(sector_perf[-3:])) if len(sector_perf) >= 3 else []
+            content.append("**Leaders**")
+            for s in leaders:
                 change_str = s.get('changesPercentage', '0.00%')
                 content.append(f"- **{s.get('sector')}:** {change_str}")
+            if laggards:
+                content.append("**Laggards**")
+                for s in laggards:
+                    change_str = s.get('changesPercentage', '0.00%')
+                    content.append(f"- **{s.get('sector')}:** {change_str}")
             content.append("")
 
         if cap_chart_path and Path(cap_chart_path).exists():
@@ -367,8 +428,31 @@ class NewsletterGenerator:
             content.append(fund_performance_md.strip())
             content.append("")
 
+        if catalysts:
+            content.append("## 4) Near-Term Catalysts")
+            for catalyst in catalysts[:6]:
+                content.append(f"- {catalyst}")
+            content.append("")
+
+        content.append("## 5) Notable Movers")
+        if top_buys or top_sells:
+            for idea in top_buys[:3]:
+                ticker = idea.get('ticker', 'N/A')
+                score = _safe_num(idea.get('score'))
+                content.append(f"- **{ticker}** flagged long with strong composite score ({score:.1f}).")
+            for idea in top_sells[:3]:
+                ticker = idea.get('ticker', 'N/A')
+                score = _safe_num(idea.get('score'))
+                content.append(f"- **{ticker}** flagged as risk-off candidate ({score:.1f}); monitor for relative weakness.")
+        elif trending_entities:
+            for ent in trending_entities[:4]:
+                content.append(f"- **{ent.get('key')}** showing elevated narrative flow ({ent.get('total_documents', 0)} documents).")
+        else:
+            content.append("- No reliable mover data available from configured feeds this run.")
+        content.append("")
+
         # --- SECTION: QUESTIONS OF THE DAY ---
-        content.append("## 4) Questions of the Day")
+        content.append("## 6) Questions of the Day")
         for i, q in enumerate(qotds, 1):
             content.append(f"### {q.get('question')}")
             content.append(f"📊 **The Answer**: {q.get('answer')}")
@@ -377,7 +461,7 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: WHAT HISTORY SAYS ---
-        content.append("## 5) What History Says")
+        content.append("## 7) What History Says")
         if top_buys:
              t_stock = top_buys[0].get('ticker')
              hist_comment = self.ai_agent._call_ai(f"Provide professional historical context for {t_stock} relative to its technical setup. 3 sentences.")
@@ -389,12 +473,34 @@ class NewsletterGenerator:
 
         # --- SECTION: TOP HEADLINES ---
         if market_news:
-            content.append("## 6) Top Headlines")
+            content.append("## 8) Top Headlines")
             for item in market_news[:8]:
                 title = item.get('title', 'No Title')
                 url = item.get('url', '#')
                 site = item.get('site', 'News')
-                content.append(f"- [{title}]({url}) — *{site}*")
+                summary = item.get('summary', '')
+                if summary:
+                    content.append(f"- [{title}]({url}) — *{site}*\n  - {summary[:180].rstrip()}...")
+                else:
+                    content.append(f"- [{title}]({url}) — *{site}*")
+            content.append("")
+
+        if portfolio_news:
+            content.append("## 9) Portfolio-Specific News")
+            for item in portfolio_news[:6]:
+                title = item.get('title', 'No Title')
+                symbol = item.get('symbol', 'N/A')
+                url = item.get('url', '#')
+                content.append(f"- **{symbol}:** [{title}]({url})")
+            content.append("")
+
+        if earnings_cal:
+            content.append("## 10) Earnings Radar (Next 5 Days)")
+            for event in earnings_cal[:8]:
+                symbol = event.get('symbol', 'N/A')
+                date = event.get('date', '')
+                eps_est = event.get('epsEstimate', 'N/A')
+                content.append(f"- **{date}** — {symbol} (EPS est: {eps_est})")
             content.append("")
 
         if portfolio_news:
@@ -417,7 +523,7 @@ class NewsletterGenerator:
 
         # --- SECTION: TODAY'S EVENTS ---
         if econ_calendar:
-            content.append("## 9) Today's Events")
+            content.append("## 11) Today's Events")
             for event in econ_calendar[:8]:
                 date = event.get('date', '')
                 title = event.get('event', 'Economic Event')
@@ -513,7 +619,7 @@ class NewsletterGenerator:
             content.append("")
 
         # --- SECTION: PORTFOLIO ARCHITECTURE ---
-        content.append("## � Portfolio Governance & Architecture")
+        content.append("## 🧭 Portfolio Governance & Architecture")
         content.append("| Metric | Value | Benchmark |")
         content.append("|--------|-------|-----------|")
         content.append(f"| **Portfolio Quality Score** | {portfolio.total_score:.1f}/100 | > 75.0 |")

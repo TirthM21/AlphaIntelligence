@@ -66,5 +66,6 @@ EMAIL_RECIPIENT=recipient@email.com
 | **System Diagnostics** | `python run_optimized_scan.py --diagnostics` |
 | **Test Email Pipeline** | `python test_email_full.py` |
 
+
 ---
 # AlphaIntelligence Capital

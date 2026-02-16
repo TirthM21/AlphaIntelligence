@@ -15,6 +15,11 @@ from src.ai.ai_agent import AIAgent
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AIReport")
 
+TICKER_STOPWORDS = {
+    "BUY", "SELL", "HOLD", "SPY", "QQQ", "ETF", "USD", "THE", "AND", "RISK", "ON", "OFF",
+    "MARKET", "SCORE", "LONG", "SHORT", "ALPHA", "BETA", "DATE", "OPEN", "CLOSE"
+}
+
 
 def _extract_top_tickers(scan_content: str, limit: int = 5) -> List[str]:
     """Extract likely ticker symbols from scan text in rank order."""
@@ -28,7 +33,7 @@ def _extract_top_tickers(scan_content: str, limit: int = 5) -> List[str]:
 
     for pattern in patterns:
         for match in re.findall(pattern, scan_content):
-            if match in {"BUY", "SELL", "HOLD", "SPY", "QQQ", "ETF", "USD"}:
+            if match in TICKER_STOPWORDS:
                 continue
             if match not in candidates:
                 candidates.append(match)
@@ -46,7 +51,7 @@ def _build_fallback_report(scan_content: str) -> str:
         "## 1) Strategic Market Regime",
         "Scanner context is available, but AI commentary is offline. Treat current output as a systematic read of trend and breadth until model analysis is restored.",
         "",
-        "## 2) Alpha Candidates",
+        "## 2) Alpha Candidates (Top 3)",
         f"Top extracted symbols: **{top_text}**.",
         "Prioritize names with aligned trend, earnings revisions, and liquidity confirmation.",
         "",
@@ -66,10 +71,10 @@ def generate_deep_dive() -> None:
 
     scan_file = Path("./data/daily_scans/latest_optimized_scan.txt")
     if not scan_file.exists():
-        logger.error("No scan results found in data/daily_scans/latest_optimized_scan.txt")
-        return
-
-    scan_content = scan_file.read_text(encoding="utf-8")
+        logger.warning("No scan results found in data/daily_scans/latest_optimized_scan.txt; generating fallback report.")
+        scan_content = "No scanner output available for this run."
+    else:
+        scan_content = scan_file.read_text(encoding="utf-8")
     ai_context = scan_content[:6000]
     top_symbols = _extract_top_tickers(scan_content, limit=5)
 

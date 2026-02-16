@@ -503,6 +503,24 @@ class NewsletterGenerator:
                 content.append(f"- **{date}** — {symbol} (EPS est: {eps_est})")
             content.append("")
 
+        if portfolio_news:
+            content.append("## 7) Portfolio-Specific News")
+            for item in portfolio_news[:6]:
+                title = item.get('title', 'No Title')
+                symbol = item.get('symbol', 'N/A')
+                url = item.get('url', '#')
+                content.append(f"- **{symbol}:** [{title}]({url})")
+            content.append("")
+
+        if earnings_cal:
+            content.append("## 8) Earnings Radar (Next 5 Days)")
+            for event in earnings_cal[:8]:
+                symbol = event.get('symbol', 'N/A')
+                date = event.get('date', '')
+                eps_est = event.get('epsEstimate', 'N/A')
+                content.append(f"- **{date}** — {symbol} (EPS est: {eps_est})")
+            content.append("")
+
         # --- SECTION: TODAY'S EVENTS ---
         if econ_calendar:
             content.append("## 11) Today's Events")

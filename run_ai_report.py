@@ -1,87 +1,129 @@
-"""Generates a deep-dive Quantitative Intelligence Report using AI.
-Analyzes the results of the latest market scan.
-"""
+"""Generate a structured quantitative daily report from latest scan output."""
 
 import logging
-import os
+import re
 import sys
-from pathlib import Path
 from datetime import datetime
-from typing import List, Dict
+from pathlib import Path
+from typing import Dict, List
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
 
 from src.ai.ai_agent import AIAgent
 
-# Setup Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AIReport")
 
-def generate_deep_dive():
+
+def _extract_top_tickers(scan_content: str, limit: int = 5) -> List[str]:
+    """Extract likely ticker symbols from scan text in rank order."""
+    candidates = []
+    # Common formats: "1. NVDA", "Ticker: NVDA", or standalone uppercase tokens
+    patterns = [
+        r"\bTicker\s*[:\-]\s*([A-Z]{1,5})\b",
+        r"\b\d+\.\s+([A-Z]{1,5})\b",
+        r"\b([A-Z]{2,5})\b",
+    ]
+
+    for pattern in patterns:
+        for match in re.findall(pattern, scan_content):
+            if match in {"BUY", "SELL", "HOLD", "SPY", "QQQ", "ETF", "USD"}:
+                continue
+            if match not in candidates:
+                candidates.append(match)
+            if len(candidates) >= limit:
+                return candidates
+    return candidates[:limit]
+
+
+def _build_fallback_report(scan_content: str) -> str:
+    """Create a deterministic report when AI is unavailable."""
+    top = _extract_top_tickers(scan_content, limit=3)
+    top_text = ", ".join(top) if top else "No clear symbols found"
+
+    lines = [
+        "## 1) Strategic Market Regime",
+        "Scanner context is available, but AI commentary is offline. Treat current output as a systematic read of trend and breadth until model analysis is restored.",
+        "",
+        "## 2) Alpha Candidates",
+        f"Top extracted symbols: **{top_text}**.",
+        "Prioritize names with aligned trend, earnings revisions, and liquidity confirmation.",
+        "",
+        "## 3) Structural Risks",
+        "- Model commentary unavailable; apply stricter position sizing.",
+        "- Enforce stop-loss and max drawdown rules without exception.",
+        "- Reduce gross exposure if index breadth deteriorates.",
+        "",
+        "## 4) Final Verdict",
+        "Operate in risk-managed mode until AI narrative layer is restored; rely on scanner rank + portfolio risk controls.",
+    ]
+    return "\n".join(lines)
+
+
+def generate_deep_dive() -> None:
     logger.info("Starting AI Deep-Dive Report Generation...")
-    
-    # 1. Locate Latest Scan
+
     scan_file = Path("./data/daily_scans/latest_optimized_scan.txt")
     if not scan_file.exists():
         logger.error("No scan results found in data/daily_scans/latest_optimized_scan.txt")
         return
 
-    with open(scan_file, 'r', encoding='utf-8') as f:
-        scan_content = f.read()
+    scan_content = scan_file.read_text(encoding="utf-8")
+    ai_context = scan_content[:6000]
+    top_symbols = _extract_top_tickers(scan_content, limit=5)
 
-    # 2. Extract Top Picks (Simple parsing for AI context)
-    # We'll take the first 3000 chars of the scan to get stats and top buys
-    ai_context = scan_content[:4000]
-
-    # 3. Call AI Agent
     ai = AIAgent()
-    if not ai.api_key:
-        logger.error("FREE_LLM_API_KEY not set. Cannot generate report.")
-        return
 
     prompt = f"""
-    Act as a Head of Quantitative Strategy at a Tier-1 Hedge Fund (e.g., Renaissance Technologies or Two Sigma).
-    
-    I will provide you with the raw output of our proprietary market scanner (MoE v2.0). 
-    Your task is to synthesize this data into a "Quantum Intelligence Executive Brief".
-    
-    Data from Scan:
-    {ai_context}
-    
-    Structure your report as follows:
-    1. **Strategic Market Regime**: Analyze the SPY trend and market breadth. What is the overall "risk-on/off" status?
-    2. **The "Alpha" Picks**: Select the top 3 symbols from the scan. For each, provide a "Quant's Take" - why is the technical-fundamental mixture compelling for a long-duration hold?
-    3. **Structural Risks**: Identify any "red flags" mentioned (e.g., inventory building, margin contraction) and how to manage them.
-    4. **Final Verdict**: An authoritative concluding statement on the current opportunity set.
-    
-    Use a professional, institutional, and sharp tone.
-    """
+You are the Head of Quantitative Strategy at a Tier-1 hedge fund.
 
-    logger.info("Sending data to AI for deep-dive analysis...")
-    report = ai._call_ai(prompt)
+Produce a concise, high-signal markdown report titled "Quantum Intelligence Executive Brief".
+Use exactly these sections and headings:
+## 1) Strategic Market Regime
+## 2) Alpha Candidates (Top 3)
+## 3) Structural Risks
+## 4) Final Verdict
+
+Requirements:
+- Be specific and evidence-based.
+- Reference scanner clues directly.
+- For each Alpha Candidate, include: setup quality, risk, and execution note.
+- Avoid fluff, hype, and generic language.
+
+Top extracted symbols: {top_symbols}
+
+Scanner data:
+{ai_context}
+"""
+
+    report = None
+    if ai.api_key:
+        logger.info("Sending data to AI for deep-dive analysis...")
+        report = ai._call_ai(prompt)
+    else:
+        logger.warning("FREE_LLM_API_KEY not set. Falling back to deterministic report.")
 
     if not report:
-        logger.error("AI failed to return a report.")
-        return
+        report = _build_fallback_report(scan_content)
 
-    # 4. Save Report
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path("./data/reports")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"quantum_intelligence_report_{timestamp}.md"
-    
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("# 🔬 Quantum Intelligence Executive Brief\n")
-        f.write(f"**Analysis Date:** {datetime.now().strftime('%B %d, %Y')}\n\n")
-        f.write(report)
-        f.write(f"\n\n---\n*Generated by AlphaIntelligence AI Engine v2.0*")
 
-    logger.info(f"Report successfully generated and saved to {output_path}")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("# 🔬 Quantum Intelligence Executive Brief\n")
+        f.write(f"**Analysis Date:** {datetime.now().strftime('%B %d, %Y')}\n")
+        if top_symbols:
+            f.write(f"**Top Symbols Extracted:** {', '.join(top_symbols)}\n")
+        f.write("\n")
+        f.write(report)
+        f.write("\n\n---\n*Generated by AlphaIntelligence AI Engine v2.1*\n")
+
+    logger.info("Report successfully generated and saved to %s", output_path)
     print(f"\nSUCCESS: AI Report generated at {output_path}")
+
 
 if __name__ == "__main__":
     generate_deep_dive()

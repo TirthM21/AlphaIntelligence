@@ -1,6 +1,5 @@
 
 import logging
-import os
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -21,7 +20,11 @@ class NewsletterGenerator:
     """Generates a high-quality, professional daily market newsletter."""
 
     def __init__(self, portfolio_path: str = "./data/positions.json"):
-        self.fetcher = EnhancedFundamentalsFetcher()
+        try:
+            self.fetcher = EnhancedFundamentalsFetcher()
+        except Exception as e:
+            logger.warning(f"EnhancedFundamentalsFetcher unavailable during init: {e}")
+            self.fetcher = None
         self.finnhub = FinnhubFetcher()
         self.marketaux = MarketauxFetcher()
         self.fred = FredFetcher()
@@ -148,7 +151,7 @@ class NewsletterGenerator:
                 logger.error(f"FRED fetch failed: {e}")
 
         # Fallback/Supplemental Data from FMP
-        if self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+        if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
             try:
                 # FMP used for DAILY news as requested
                 logger.info("Fetching FMP daily market news...")
@@ -212,7 +215,7 @@ class NewsletterGenerator:
         # 3. Dynamic Sector & Cap Analysis
         sector_perf = []
         cap_perf = {}
-        if self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+        if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
             try:
                 sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
                 # Sort sectors by performance
@@ -246,18 +249,34 @@ class NewsletterGenerator:
             qotds.append(self.ai_agent.generate_qotd())
             
         history_insight = ""
-        # 6. Build Content (Strict PRISM Style)
+        # 6. Build content (institutional style, concise + actionable)
         content = []
         date_str = datetime.now().strftime('%B %d, %Y')
+        top_buys = top_buys or []
+        top_sells = top_sells or []
+        market_status = market_status or {}
+
+        def _safe_num(value, default=0.0):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        spy_trend = market_status.get('spy', {}).get('trend', 'NEUTRAL')
+        ad_ratio = _safe_num(market_status.get('breadth', {}).get('advance_decline_ratio'))
+        pct_above_200 = _safe_num(market_status.get('breadth', {}).get('percent_above_200sma'))
         
         # Header
-        content.append(f"## 🏛️ AlphaIntelligence Capital BRIEF")
-        content.append(f"# {date_str}")
+        content.append("# 🏛️ AlphaIntelligence Capital — Daily Market Brief")
+        content.append(f"**Date:** {date_str}")
+        content.append("")
+        content.append("A professional decision memo combining market structure, risk context, and top opportunities.")
+        content.append("")
         
         headline = "Institutional Sentiment Stabilizes Amidst Technical Consolidation"
         if market_news:
             headline = market_news[0]['title']
-        content.append(f"## {headline}")
+        content.append(f"## Executive Headline: {headline}")
         
         if market_news:
              content.append(f"{market_news[0].get('summary', 'Market participants are evaluating recent volatility as earnings season developments provide a mixed technical backdrop.')}")
@@ -265,8 +284,9 @@ class NewsletterGenerator:
         content.append("---")
         content.append("")
 
-        # --- SECTION: MARKET MOOD ---
-        content.append("### Market Sentiment")
+        # --- SECTION: MARKET OVERVIEW ---
+        content.append("## 1) Market Overview")
+        content.append("### Sentiment & Breadth")
         sentiment_score = 55.5
         sentiment_label = "Neutral"
         if trending_entities:
@@ -274,7 +294,12 @@ class NewsletterGenerator:
             sentiment_score = 50 + (avg_sent * 50)
             sentiment_label = "Greed" if sentiment_score > 60 else "Fear" if sentiment_score < 40 else "Neutral"
         
-        content.append(f"**{sentiment_score:.1f} {sentiment_label}**")
+        content.append(f"- **Sentiment Gauge:** {sentiment_score:.1f}/100 ({sentiment_label})")
+        content.append(f"- **SPY Trend Regime:** {spy_trend}")
+        if ad_ratio > 0:
+            content.append(f"- **Advance/Decline Ratio:** {ad_ratio:.2f}")
+        if pct_above_200 > 0:
+            content.append(f"- **% of Universe Above 200 SMA:** {pct_above_200:.1f}%")
         content.append("")
         
         spy_change = cap_perf.get('Large Cap', 0)
@@ -285,11 +310,9 @@ class NewsletterGenerator:
                 qqq_change = round(((qqq['Close'].iloc[-1] / qqq['Close'].iloc[-2]) - 1) * 100, 2)
         except: pass
 
-        content.append("### Early Trading")
-        content.append(f"**S&P 500**")
-        content.append(f"{'▲' if spy_change > 0 else '▼'} {spy_change:+.2f}%")
-        content.append(f"**NASDAQ**")
-        content.append(f"{'▲' if qqq_change > 0 else '▼'} {qqq_change:+.2f}%")
+        content.append("### Early Tape")
+        content.append(f"- **S&P 500 (SPY):** {'▲' if spy_change > 0 else '▼'} {spy_change:+.2f}%")
+        content.append(f"- **NASDAQ (QQQ):** {'▲' if qqq_change > 0 else '▼'} {qqq_change:+.2f}%")
         content.append("")
 
         # --- SECTION: MACRO PULSE (NEW: FRED DATA) ---
@@ -297,7 +320,7 @@ class NewsletterGenerator:
             content.append("### Macro Pulse (FRED)")
             for name, data in econ_data.items():
                 trend_icon = "▲" if data['trend'] == "Up" else "▼" if data['trend'] == "Down" else "•"
-                content.append(f"**{name}**: {data['current']} ({trend_icon} from {data['previous']})")
+                content.append(f"- **{name}:** {data['current']} ({trend_icon} from {data['previous']})")
             content.append("")
 
         # --- SECTION: SECTOR PERFORMANCE ---
@@ -305,12 +328,47 @@ class NewsletterGenerator:
             content.append("### Sector Performance")
             for s in sector_perf[:8]:
                 change_str = s.get('changesPercentage', '0.00%')
-                content.append(f"{s.get('sector')}")
-                content.append(f"**{change_str}**")
+                content.append(f"- **{s.get('sector')}:** {change_str}")
+            content.append("")
+
+        if cap_chart_path and Path(cap_chart_path).exists():
+            content.append(f"![Market-cap segment performance]({cap_chart_path})")
+            content.append("")
+        if sector_chart_path and Path(sector_chart_path).exists():
+            content.append(f"![Sector performance chart]({sector_chart_path})")
+            content.append("")
+
+        # --- SECTION: TRADE IDEAS ---
+        content.append("## 2) Actionable Watchlist")
+        if top_buys:
+            content.append("### High-Conviction Long Setups")
+            for i, idea in enumerate(top_buys[:5], 1):
+                ticker = idea.get('ticker', 'N/A')
+                score = _safe_num(idea.get('score'))
+                price = _safe_num(idea.get('current_price'))
+                thesis = idea.get('fundamental_snapshot') or "Technical and fundamental signals are aligned."
+                content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
+                content.append(f"   - Thesis: {thesis}")
+            content.append("")
+
+        if top_sells:
+            content.append("### Risk-Off / Exit Candidates")
+            for i, idea in enumerate(top_sells[:5], 1):
+                ticker = idea.get('ticker', 'N/A')
+                score = _safe_num(idea.get('score'))
+                price = _safe_num(idea.get('current_price'))
+                reason = idea.get('reason') or "Momentum deterioration or risk-control trigger."
+                content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
+                content.append(f"   - Exit Logic: {reason}")
+            content.append("")
+
+        if fund_performance_md:
+            content.append("## 3) Fund Performance Snapshot")
+            content.append(fund_performance_md.strip())
             content.append("")
 
         # --- SECTION: QUESTIONS OF THE DAY ---
-        content.append("## 💡 Questions of the Day")
+        content.append("## 4) Questions of the Day")
         for i, q in enumerate(qotds, 1):
             content.append(f"### {q.get('question')}")
             content.append(f"📊 **The Answer**: {q.get('answer')}")
@@ -319,7 +377,7 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: WHAT HISTORY SAYS ---
-        content.append("## 🏛️ What History Says")
+        content.append("## 5) What History Says")
         if top_buys:
              t_stock = top_buys[0].get('ticker')
              hist_comment = self.ai_agent._call_ai(f"Provide professional historical context for {t_stock} relative to its technical setup. 3 sentences.")
@@ -331,7 +389,7 @@ class NewsletterGenerator:
 
         # --- SECTION: TOP HEADLINES ---
         if market_news:
-            content.append("## 📰 Top Headlines")
+            content.append("## 6) Top Headlines")
             for item in market_news[:8]:
                 title = item.get('title', 'No Title')
                 url = item.get('url', '#')
@@ -339,9 +397,27 @@ class NewsletterGenerator:
                 content.append(f"- [{title}]({url}) — *{site}*")
             content.append("")
 
+        if portfolio_news:
+            content.append("## 7) Portfolio-Specific News")
+            for item in portfolio_news[:6]:
+                title = item.get('title', 'No Title')
+                symbol = item.get('symbol', 'N/A')
+                url = item.get('url', '#')
+                content.append(f"- **{symbol}:** [{title}]({url})")
+            content.append("")
+
+        if earnings_cal:
+            content.append("## 8) Earnings Radar (Next 5 Days)")
+            for event in earnings_cal[:8]:
+                symbol = event.get('symbol', 'N/A')
+                date = event.get('date', '')
+                eps_est = event.get('epsEstimate', 'N/A')
+                content.append(f"- **{date}** — {symbol} (EPS est: {eps_est})")
+            content.append("")
+
         # --- SECTION: TODAY'S EVENTS ---
         if econ_calendar:
-            content.append("## 📅 Today's Events")
+            content.append("## 9) Today's Events")
             for event in econ_calendar[:8]:
                 date = event.get('date', '')
                 title = event.get('event', 'Economic Event')
@@ -395,7 +471,7 @@ class NewsletterGenerator:
 
         trending = self.marketaux.fetch_trending_entities() if self.marketaux.api_key else []
         econ_cal = []
-        if self.fetcher.fmp_available:
+        if self.fetcher and self.fetcher.fmp_available:
             econ_cal = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=30) 
 
         # Enhanced AI Thesis for Quarterly
@@ -517,4 +593,3 @@ class NewsletterGenerator:
             f.write(final_md)
 
         return output_path
-

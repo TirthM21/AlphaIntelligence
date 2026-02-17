@@ -349,9 +349,20 @@ class EmailNotifier:
         in_table = False
         is_first_table_row = False
         in_list = False
-        
+
         for line in lines:
             stripped = line.strip()
+
+            image_match = re.match(r'^!\[(.*?)\]\((.*?)\)$', stripped)
+            if image_match:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                alt_text, image_src = image_match.groups()
+                html_lines.append(
+                    f'<figure><img src="{image_src}" alt="{alt_text}"><figcaption>{alt_text}</figcaption></figure>'
+                )
+                continue
             
             # Skip markdown table separator rows (|---|---|)
             if re.match(r'^\|[\s\-:|]+\|$', stripped):
@@ -566,7 +577,7 @@ class EmailNotifier:
                     text-decoration: underline;
                     color: #93c5fd;
                 }}
-                blockquote {{
+                blockquote {
                     background: #0e1230;
                     border-radius: 8px;
                     padding: 15px 25px;
@@ -574,7 +585,24 @@ class EmailNotifier:
                     border-left: 5px solid #c9a84c;
                     font-style: italic;
                     color: #b0b8d0;
-                }}
+                }
+                figure {
+                    margin: 20px 0;
+                    background: #0e1230;
+                    border: 1px solid #1e2a5a;
+                    border-radius: 10px;
+                    padding: 12px;
+                }
+                figure img {
+                    width: 100%;
+                    border-radius: 6px;
+                    display: block;
+                }
+                figcaption {
+                    margin-top: 8px;
+                    color: #8b95b8;
+                    font-size: 12px;
+                }
                 p {{
                     color: #d0d0d0;
                 }}

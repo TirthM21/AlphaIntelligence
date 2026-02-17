@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
+from html import escape
 
 import yfinance as yf
 
@@ -32,6 +33,7 @@ class NewsletterGenerator:
         self.ai_agent = AIAgent()
         self.visualizer = MarketVisualizer()
         self.portfolio_path = Path(portfolio_path)
+        self.template_path = Path("./src/templates/newsletter_light.html")
 
     def _load_prior_newsletter_text(self, current_output_path: str) -> str:
         """Load most recent prior newsletter markdown for anti-repetition checks."""
@@ -585,6 +587,7 @@ class NewsletterGenerator:
             mood_driver = "Risk-on posture with broad participation"
         elif sentiment_score <= 40:
             mood_driver = "Risk-off posture with defensive bias"
+        desk_take = mood_driver
         content.append(f"- **Desk Take:** {mood_driver}.")
         content.append("")
 
@@ -848,15 +851,165 @@ class NewsletterGenerator:
                 qc_report.get("duplicate_topic_ratio", 0.0),
             )
 
-        # Save to file
+        # Save markdown archive file
         output_path_obj = Path(output_path)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(final_md)
-            
+
+        # Build companion HTML presentation layer for email/web consumption
+        summary = market_news[0].get('summary', '') if market_news else ''
+        html_output = output_path_obj.with_suffix('.html')
+        final_html = self.render_newsletter_html(
+            date_str=date_str,
+            headline=headline,
+            summary=summary,
+            sentiment_score=sentiment_score,
+            sentiment_label=sentiment_label,
+            spy_trend=spy_trend,
+            desk_take=desk_take,
+            index_perf=index_perf,
+            sector_perf=sector_perf,
+            top_buys=top_buys,
+            top_sells=top_sells,
+            trending_entities=trending_entities,
+            market_news=market_news,
+            earnings_cal=earnings_cal,
+            econ_calendar=econ_calendar,
+        )
+        with open(html_output, 'w', encoding='utf-8') as f:
+            f.write(final_html)
+
         logger.info(f"Professional Newsletter generated at {output_path}")
+        logger.info(f"Newsletter HTML presentation generated at {html_output}")
         return output_path
+
+
+    def _read_light_template(self) -> str:
+        """Load the default light HTML template for email-safe rendering."""
+        default_template = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body>{{hero_headline}}{{market_mood}}{{indices_strip}}{{sector_table}}{{movers}}{{headlines}}{{events}}{{disclaimer}}</body>
+</html>"""
+        try:
+            if self.template_path.exists():
+                return self.template_path.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.error(f"Failed to load newsletter template: {e}")
+        return default_template
+
+    def build_hero_headline(self, date_str: str, headline: str, summary: str) -> str:
+        summary_text = summary or "Institutional desk commentary unavailable for this run; refer to section detail below."
+        return (
+            '<section class="card hero-card">'
+            '<p class="eyebrow">ALPHAINTELLIGENCE CAPITAL · DAILY BRIEF</p>'
+            f'<h1>{escape(headline)}</h1>'
+            f'<p class="subhead">{escape(summary_text)}</p>'
+            f'<p class="meta-date">{escape(date_str)}</p>'
+            '</section>'
+        )
+
+    def build_market_mood(self, sentiment_score: float, sentiment_label: str, spy_trend: str, desk_take: str) -> str:
+        return (
+            '<section class="card">'
+            '<h2>Market Mood</h2>'
+            '<div class="stats-grid">'
+            f'<div><span class="stat-label">Sentiment</span><strong>{sentiment_score:.1f}/100 ({escape(sentiment_label)})</strong></div>'
+            f'<div><span class="stat-label">SPY Trend</span><strong>{escape(spy_trend)}</strong></div>'
+            '</div>'
+            f'<p class="compact">{escape(desk_take)}</p>'
+            '</section>'
+        )
+
+    def build_indices_strip(self, index_perf: Dict[str, float]) -> str:
+        if not index_perf:
+            return ''
+        chips = []
+        for label, move in index_perf.items():
+            polarity = 'pos' if move >= 0 else 'neg'
+            chips.append(f'<span class="chip {polarity}">{escape(label)} {move:+.2f}%</span>')
+        return '<section class="card"><h2>Indices</h2><div class="chip-row">' + ''.join(chips) + '</div></section>'
+
+    def build_sector_table(self, sector_perf: List[Dict]) -> str:
+        if not sector_perf:
+            return ''
+        rows = []
+        for sector in sector_perf[:8]:
+            name = escape(str(sector.get('sector', 'N/A')))
+            change = escape(str(sector.get('changesPercentage', '0.00%')))
+            rows.append(f'<tr><td>{name}</td><td>{change}</td></tr>')
+        return (
+            '<section class="card"><h2>Sectors</h2>'
+            '<div class="table-wrap"><table><thead><tr><th>Sector</th><th>Move</th></tr></thead><tbody>'
+            + ''.join(rows) +
+            '</tbody></table></div></section>'
+        )
+
+    def build_movers(self, top_buys: List[Dict], top_sells: List[Dict], trending_entities: List[Dict]) -> str:
+        items = []
+        for idea in (top_buys or [])[:3]:
+            items.append(f"<li><strong>{escape(str(idea.get('ticker', 'N/A')))}</strong> long setup · score {float(idea.get('score') or 0):.1f}</li>")
+        for idea in (top_sells or [])[:3]:
+            items.append(f"<li><strong>{escape(str(idea.get('ticker', 'N/A')))}</strong> risk-off setup · score {float(idea.get('score') or 0):.1f}</li>")
+        if not items:
+            for ent in (trending_entities or [])[:4]:
+                items.append(f"<li><strong>{escape(str(ent.get('key', 'N/A')))}</strong> narrative volume {escape(str(ent.get('total_documents', 0)))} docs</li>")
+        if not items:
+            items.append('<li>No mover data available in this cycle.</li>')
+        return '<section class="card"><h2>Movers</h2><ul>' + ''.join(items) + '</ul></section>'
+
+    def build_headlines(self, market_news: List[Dict]) -> str:
+        if not market_news:
+            return ''
+        items = []
+        for item in market_news[:8]:
+            title = escape(str(item.get('title', 'No Title')))
+            url = escape(str(item.get('url', '#')))
+            site = escape(str(item.get('site', 'News')))
+            items.append(f'<li><a href="{url}">{title}</a><span class="source">{site}</span></li>')
+        return '<section class="card"><h2>Headlines</h2><ul class="link-list">' + ''.join(items) + '</ul></section>'
+
+    def build_events(self, earnings_cal: List[Dict], econ_calendar: List[Dict]) -> str:
+        events = []
+        for event in (earnings_cal or [])[:5]:
+            events.append(f"<li><strong>{escape(str(event.get('date', '')))}</strong> Earnings: {escape(str(event.get('symbol', 'N/A')))}</li>")
+        for event in (econ_calendar or [])[:5]:
+            events.append(f"<li><strong>{escape(str(event.get('date', '')))}</strong> {escape(str(event.get('event', 'Economic Event')))}</li>")
+        if not events:
+            events.append('<li>No scheduled catalysts captured.</li>')
+        return '<section class="card"><h2>Events</h2><ul>' + ''.join(events) + '</ul></section>'
+
+    def build_disclaimer(self) -> str:
+        return (
+            '<section class="card disclaimer">'
+            '<p><strong>Disclaimer:</strong> This content is for informational purposes only and is not investment advice.</p>'
+            '<p><a href="https://alphaintelligence.capital/unsubscribe">Unsubscribe</a></p>'
+            '</section>'
+        )
+
+    def render_newsletter_html(self, *, date_str: str, headline: str, summary: str, sentiment_score: float,
+                               sentiment_label: str, spy_trend: str, desk_take: str, index_perf: Dict[str, float],
+                               sector_perf: List[Dict], top_buys: List[Dict], top_sells: List[Dict],
+                               trending_entities: List[Dict], market_news: List[Dict], earnings_cal: List[Dict],
+                               econ_calendar: List[Dict]) -> str:
+        """Render newsletter HTML using explicit section builders and the light template."""
+        template = self._read_light_template()
+        sections = {
+            'hero_headline': self.build_hero_headline(date_str, headline, summary),
+            'market_mood': self.build_market_mood(sentiment_score, sentiment_label, spy_trend, desk_take),
+            'indices_strip': self.build_indices_strip(index_perf),
+            'sector_table': self.build_sector_table(sector_perf),
+            'movers': self.build_movers(top_buys, top_sells, trending_entities),
+            'headlines': self.build_headlines(market_news),
+            'events': self.build_events(earnings_cal, econ_calendar),
+            'disclaimer': self.build_disclaimer(),
+        }
+        html = template
+        for key, value in sections.items():
+            html = html.replace('{{' + key + '}}', value)
+        return html
 
     def generate_quarterly_newsletter(self,
                                    portfolio: any,

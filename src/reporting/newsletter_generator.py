@@ -60,6 +60,8 @@ class NewsletterGenerator:
         
         # 1. Initialize data containers
         econ_data = {}
+        macro_panel = {}
+        macro_panel_fallback = ""
         market_news = []
         portfolio = self.load_portfolio()
         portfolio_tickers = [p['ticker'] for p in portfolio]
@@ -145,15 +147,15 @@ class NewsletterGenerator:
                 logger.error(f"Marketaux fetch failed: {e}")
 
         # Try FRED for Macro Data (Highest priority for macro)
-        if self.fred.api_key:
-            try:
-                logger.info("Fetching FRED macro economic indicators...")
-                macro_indicators = {
-                    'GDP': 'GDP',
-                    'CPI': 'CPIAUCSL',
-                    'Unemployment': 'UNRATE',
-                    'Fed Funds': 'FEDFUNDS'
-                }
+        try:
+            logger.info("Fetching FRED macro economic indicators...")
+            macro_indicators = {
+                'GDP': 'GDP',
+                'CPI': 'CPIAUCSL',
+                'Unemployment': 'UNRATE',
+                'Fed Funds': 'FEDFUNDS'
+            }
+            if self.fred.api_key:
                 for name, series_id in macro_indicators.items():
                     obs = self.fred.fetch_series_observations(series_id, limit=2)
                     if obs:
@@ -161,22 +163,29 @@ class NewsletterGenerator:
                         prev = obs[-2] if len(obs) > 1 else {}
                         val = latest.get('value', '0')
                         p_val = prev.get('value', '0')
-                        
+
                         try:
                             val_f = float(val) if val != '.' else 0
                             p_val_f = float(p_val) if p_val != '.' else 0
                             trend = "Up" if val_f > p_val_f else "Down"
                         except (TypeError, ValueError):
                             trend = "Stable"
-                            
+
                         econ_data[name] = {
                             'current': val,
                             'date': latest.get('date'),
                             'previous': p_val,
                             'trend': trend
                         }
-            except Exception as e:
-                logger.error(f"FRED fetch failed: {e}")
+            macro_panel = self.fred.get_fixed_macro_panel()
+            if not self.fred.api_key:
+                macro_panel_fallback = (
+                    "FRED API key missing: macro panel uses fallback narrative. "
+                    "Set FRED_API_KEY for live regime reads."
+                )
+        except Exception as e:
+            logger.error(f"FRED fetch failed: {e}")
+            macro_panel_fallback = "Macro panel unavailable due to FRED fetch error."
 
         # Fallback/Supplemental Data from FMP
         if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
@@ -241,6 +250,17 @@ class NewsletterGenerator:
         if econ_calendar:
              for ev in econ_calendar[:2]:
                  catalysts.append(f"**{ev.get('event')}**: {ev.get('date')}")
+
+        def _event_impact_tag(event: Dict) -> str:
+            impact_raw = str(event.get('impact') or event.get('importance') or '').lower()
+            title = str(event.get('event') or '').lower()
+            high_tokens = ['high', 'fed', 'cpi', 'payroll', 'fomc', 'rate decision']
+            medium_tokens = ['medium', 'pmi', 'ism', 'consumer confidence', 'jobless claims']
+            if any(token in impact_raw for token in ['high', '3']) or any(token in title for token in high_tokens):
+                return 'HIGH'
+            if any(token in impact_raw for token in ['medium', '2']) or any(token in title for token in medium_tokens):
+                return 'MEDIUM'
+            return 'LOW'
 
         # 3. Dynamic Sector & Cap Analysis
         sector_perf = []
@@ -374,6 +394,31 @@ class NewsletterGenerator:
             for name, data in econ_data.items():
                 trend_icon = "▲" if data['trend'] == "Up" else "▼" if data['trend'] == "Down" else "•"
                 content.append(f"- **{name}:** {data['current']} ({trend_icon} from {data['previous']})")
+            content.append("")
+
+        if macro_panel:
+            content.append("### Fixed Macro Panel")
+            for panel in macro_panel.values():
+                content.append(f"- **{panel.get('name', 'Macro Signal')}:** {panel.get('summary', 'No summary available.')}")
+            content.append("")
+
+        if macro_panel_fallback:
+            content.append(f"- *{macro_panel_fallback}*")
+            content.append("")
+
+        if macro_panel:
+            spread_text = (macro_panel.get('yield_spread_regime') or {}).get('summary', '').lower()
+            labor_text = (macro_panel.get('labor_stress_proxy') or {}).get('summary', '').lower()
+            inflation_text = (macro_panel.get('inflation_momentum_proxy') or {}).get('summary', '').lower()
+
+            risk_bias = "Risk-on" if "steep" in spread_text and "improving" in labor_text else "Risk-off"
+            inflation_bias = "inflation cooling" if "cooling" in inflation_text else "inflation pressure"
+            labor_bias = "labor conditions firm" if "improving" in labor_text else "labor conditions mixed"
+
+            content.append("### Macro Regime")
+            content.append(f"- **Regime Bias:** {risk_bias} context from rates-curve and labor signals.")
+            content.append(f"- **Inflation Read:** {inflation_bias}; monitor duration/real-rate sensitivity.")
+            content.append(f"- **Growth/Labor Read:** {labor_bias}; position sizing should respect event volatility.")
             content.append("")
 
         # --- SECTION: SECTOR PERFORMANCE ---
@@ -526,8 +571,10 @@ class NewsletterGenerator:
             content.append("## 11) Today's Events")
             for event in econ_calendar[:8]:
                 date = event.get('date', '')
+                event_time = event.get('time') or event.get('hour') or 'TBD'
                 title = event.get('event', 'Economic Event')
-                content.append(f"○ **{date}** {title}")
+                impact_tag = _event_impact_tag(event)
+                content.append(f"- **{date} {event_time}** — {title} `[{impact_tag}]`")
             content.append("")
 
         # --- GLOSSARY SECTION ---

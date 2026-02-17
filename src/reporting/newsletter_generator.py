@@ -1,9 +1,11 @@
 
 import logging
 import json
+import re
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
+from html import escape
 
 import yfinance as yf
 
@@ -31,6 +33,58 @@ class NewsletterGenerator:
         self.ai_agent = AIAgent()
         self.visualizer = MarketVisualizer()
         self.portfolio_path = Path(portfolio_path)
+        self.template_path = Path("./src/templates/newsletter_light.html")
+
+    def _load_prior_newsletter_text(self, current_output_path: str) -> str:
+        """Load most recent prior newsletter markdown for anti-repetition checks."""
+        try:
+            output_dir = Path(current_output_path).parent
+            current_name = Path(current_output_path).name
+            candidates = sorted(output_dir.glob("daily_newsletter_*.md"), reverse=True)
+            for path in candidates:
+                if path.name == current_name:
+                    continue
+                return path.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.warning(f"Unable to load prior newsletter text: {e}")
+        return ""
+
+    def _build_evidence_payload(
+        self,
+        market_news: List[Dict],
+        sector_perf: List[Dict],
+        index_perf: Dict[str, float],
+        top_buys: List[Dict],
+        top_sells: List[Dict],
+        earnings_cal: List[Dict],
+        econ_calendar: List[Dict],
+    ) -> Dict:
+        """Build authoritative evidence payload used for prompt constraints and validation."""
+        sector_leader = sector_perf[0] if sector_perf else {}
+        sector_laggard = sector_perf[-1] if len(sector_perf) > 1 else {}
+
+        return {
+            'index_move': index_perf,
+            'sector_leader_laggard': {
+                'leader': {
+                    'sector': sector_leader.get('sector'),
+                    'change_pct': sector_leader.get('changesPercentage'),
+                },
+                'laggard': {
+                    'sector': sector_laggard.get('sector'),
+                    'change_pct': sector_laggard.get('changesPercentage'),
+                },
+            },
+            'mover_stats': {
+                'top_buys': top_buys[:5],
+                'top_sells': top_sells[:5],
+            },
+            'event_references': {
+                'earnings': earnings_cal[:6],
+                'economic_calendar': econ_calendar[:6],
+                'headline_news': market_news[:6],
+            },
+        }
 
     def load_portfolio(self) -> List[Dict]:
         """Load user portfolio from positions.json."""
@@ -42,6 +96,104 @@ class NewsletterGenerator:
         except Exception as e:
             logger.error(f"Failed to load portfolio: {e}")
             return []
+
+    def _normalize_topic(self, text: str) -> str:
+        """Normalize a headline to a coarse topic key for duplication analysis."""
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+        words = cleaned.split()
+        tokens = [t for t in words if len(t) > 3 and t not in {"today", "market", "stocks", "stock", "news"}]
+        if not tokens:
+            tokens = words
+        return " ".join(tokens[:6])
+
+    def _build_qc_fallback_template(self, date_str: str) -> str:
+        """Return a safe fallback newsletter that satisfies required sections."""
+        lines = [
+            "# 🏛️ AlphaIntelligence Capital — Daily Market Brief",
+            f"**Date:** {date_str}",
+            "",
+            "## Executive Headline",
+            "Daily report generation completed with limited confidence checks; use a defensive interpretation.",
+            "",
+            "## 1) Snapshot",
+            "- Market internals are currently being revalidated.",
+            "- Maintain risk controls until full signal quality is restored.",
+            "",
+            "## 2) Top Headlines",
+            "- [Market structure update pending](https://alphaintelligence.capital) — *AlphaIntelligence*",
+            "- [Macro dashboard refresh pending](https://alphaintelligence.capital) — *AlphaIntelligence*",
+            "- [Portfolio monitor refresh pending](https://alphaintelligence.capital) — *AlphaIntelligence*",
+            "",
+            "## 3) Today's Events",
+            "- Economic calendar refresh in progress.",
+            "",
+            "## Disclaimer",
+            "This content is for informational purposes only and is not investment advice.",
+        ]
+        return "\n".join(lines)
+
+    def _run_newsletter_qc(self, markdown: str) -> Tuple[bool, Dict[str, float], List[str]]:
+        """Validate newsletter structure and source quality before final output."""
+        errors: List[str] = []
+        headings = re.findall(r"^(##\s+.+)$", markdown, flags=re.MULTILINE)
+        lowered_headings = [h.lower() for h in headings]
+
+        # Rule: no duplicate section headers
+        seen: Set[str] = set()
+        dupes: Set[str] = set()
+        for h in lowered_headings:
+            if h in seen:
+                dupes.add(h)
+            seen.add(h)
+        if dupes:
+            errors.append("duplicate_headers")
+
+        # Rule: required sections present
+        required_fragments = {
+            "headline": "executive headline",
+            "snapshot": "snapshot",
+            "headlines_list": "top headlines",
+            "events": "today's events",
+            "disclaimer": "disclaimer",
+        }
+        for label, fragment in required_fragments.items():
+            if fragment not in markdown.lower():
+                errors.append(f"missing_{label}")
+
+        # Rule: heading order and numbering consistency
+        numbered = re.findall(r"^##\s+(\d+)\)\s+(.+)$", markdown, flags=re.MULTILINE)
+        if numbered:
+            nums = [int(n) for n, _ in numbered]
+            expected = list(range(nums[0], nums[0] + len(nums)))
+            if nums != expected:
+                errors.append("heading_number_sequence")
+
+        # Rule: minimum source count and max duplicate-topic ratio
+        links = re.findall(r"\[[^\]]+\]\((https?://[^)]+)\)", markdown)
+        unique_sources = len(set(links))
+        min_source_count = 3
+        if unique_sources < min_source_count:
+            errors.append("insufficient_sources")
+
+        headlines_section = re.search(r"##\s+\d+\)\s+Top Headlines\n(.+?)(?:\n##\s+|\Z)", markdown, flags=re.DOTALL)
+        headline_lines = re.findall(r"^-\s+\[([^\]]+)\]", headlines_section.group(1), flags=re.MULTILINE) if headlines_section else []
+        topics = [self._normalize_topic(t) for t in headline_lines if t.strip()]
+        topic_total = len(topics)
+        topic_unique = len(set(topics)) if topics else 0
+        duplicate_ratio = 0.0
+        if topic_total:
+            duplicate_ratio = max(0.0, (topic_total - topic_unique) / topic_total)
+        max_duplicate_ratio = 0.45
+        if topic_total >= 2 and duplicate_ratio > max_duplicate_ratio:
+            errors.append("duplicate_topic_ratio")
+
+        report = {
+            "heading_count": float(len(headings)),
+            "duplicate_header_count": float(len(dupes)),
+            "source_count": float(unique_sources),
+            "duplicate_topic_ratio": round(duplicate_ratio, 3),
+        }
+        return len(errors) == 0, report, errors
 
     def generate_newsletter(self, 
                           market_status: Dict = None, 
@@ -60,6 +212,8 @@ class NewsletterGenerator:
         
         # 1. Initialize data containers
         econ_data = {}
+        macro_panel = {}
+        macro_panel_fallback = ""
         market_news = []
         portfolio = self.load_portfolio()
         portfolio_tickers = [p['ticker'] for p in portfolio]
@@ -145,15 +299,15 @@ class NewsletterGenerator:
                 logger.error(f"Marketaux fetch failed: {e}")
 
         # Try FRED for Macro Data (Highest priority for macro)
-        if self.fred.api_key:
-            try:
-                logger.info("Fetching FRED macro economic indicators...")
-                macro_indicators = {
-                    'GDP': 'GDP',
-                    'CPI': 'CPIAUCSL',
-                    'Unemployment': 'UNRATE',
-                    'Fed Funds': 'FEDFUNDS'
-                }
+        try:
+            logger.info("Fetching FRED macro economic indicators...")
+            macro_indicators = {
+                'GDP': 'GDP',
+                'CPI': 'CPIAUCSL',
+                'Unemployment': 'UNRATE',
+                'Fed Funds': 'FEDFUNDS'
+            }
+            if self.fred.api_key:
                 for name, series_id in macro_indicators.items():
                     obs = self.fred.fetch_series_observations(series_id, limit=2)
                     if obs:
@@ -161,22 +315,29 @@ class NewsletterGenerator:
                         prev = obs[-2] if len(obs) > 1 else {}
                         val = latest.get('value', '0')
                         p_val = prev.get('value', '0')
-                        
+
                         try:
                             val_f = float(val) if val != '.' else 0
                             p_val_f = float(p_val) if p_val != '.' else 0
                             trend = "Up" if val_f > p_val_f else "Down"
                         except (TypeError, ValueError):
                             trend = "Stable"
-                            
+
                         econ_data[name] = {
                             'current': val,
                             'date': latest.get('date'),
                             'previous': p_val,
                             'trend': trend
                         }
-            except Exception as e:
-                logger.error(f"FRED fetch failed: {e}")
+            macro_panel = self.fred.get_fixed_macro_panel()
+            if not self.fred.api_key:
+                macro_panel_fallback = (
+                    "FRED API key missing: macro panel uses fallback narrative. "
+                    "Set FRED_API_KEY for live regime reads."
+                )
+        except Exception as e:
+            logger.error(f"FRED fetch failed: {e}")
+            macro_panel_fallback = "Macro panel unavailable due to FRED fetch error."
 
         # Fallback/Supplemental Data from FMP
         if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
@@ -242,6 +403,17 @@ class NewsletterGenerator:
              for ev in econ_calendar[:2]:
                  catalysts.append(f"**{ev.get('event')}**: {ev.get('date')}")
 
+        def _event_impact_tag(event: Dict) -> str:
+            impact_raw = str(event.get('impact') or event.get('importance') or '').lower()
+            title = str(event.get('event') or '').lower()
+            high_tokens = ['high', 'fed', 'cpi', 'payroll', 'fomc', 'rate decision']
+            medium_tokens = ['medium', 'pmi', 'ism', 'consumer confidence', 'jobless claims']
+            if any(token in impact_raw for token in ['high', '3']) or any(token in title for token in high_tokens):
+                return 'HIGH'
+            if any(token in impact_raw for token in ['medium', '2']) or any(token in title for token in medium_tokens):
+                return 'MEDIUM'
+            return 'LOW'
+
         # 3. Dynamic Sector & Cap Analysis
         sector_perf = []
         cap_perf = {}
@@ -266,15 +438,29 @@ class NewsletterGenerator:
         except Exception as e:
             logger.error(f"Cap perf check failed: {e}")
 
-        # Major index snapshot (PRISM-style early tape)
-        try:
-            for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
-                hist = yf.Ticker(symbol).history(period='2d')
-                if len(hist) >= 2:
-                    move = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
-                    index_perf[label] = round(move, 2)
-        except Exception as e:
-            logger.error(f"Index performance check failed: {e}")
+        # Major index snapshot + sentiment/movers via Finnhub integration
+        market_snapshot = {}
+        sentiment_proxy = {"score": 50.0, "label": "Neutral", "components": []}
+        notable_movers = []
+        if self.finnhub.api_key:
+            try:
+                market_snapshot = self.finnhub.fetch_major_index_snapshot()
+                sentiment_proxy = self.finnhub.fetch_market_sentiment_proxy()
+                notable_movers = self.finnhub.fetch_notable_movers(limit=6)
+                for item in market_snapshot.values():
+                    index_perf[item.get('label', item.get('symbol', 'Index'))] = item.get('change_pct', 0.0)
+            except Exception as e:
+                logger.error(f"Finnhub snapshot check failed: {e}")
+
+        if not index_perf:
+            try:
+                for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
+                    hist = yf.Ticker(symbol).history(period='2d')
+                    if len(hist) >= 2:
+                        move = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                        index_perf[label] = round(move, 2)
+            except Exception as e:
+                logger.error(f"Index performance check failed: {e}")
 
         # 4. Generate Default Chart Suite
         chart_artifacts: List[ChartArtifact] = self.visualizer.generate_default_charts(
@@ -321,6 +507,58 @@ class NewsletterGenerator:
         if market_news:
              content.append(f"{market_news[0].get('summary', 'Market participants are evaluating recent volatility as earnings season developments provide a mixed technical backdrop.')}")
         content.append("")
+
+        # Compact Market Snapshot block near the top
+        content.append("## Market Snapshot")
+        snapshot_headline = f"Tape check: sentiment proxy at {sentiment_proxy.get('score', 50.0):.1f}/100 ({sentiment_proxy.get('label', 'Neutral')}) with mixed cross-asset leadership."
+        if notable_movers:
+            dominant = max(notable_movers, key=lambda x: abs(x.get('change_pct', 0.0)))
+            snapshot_headline = (
+                f"Tape check: {dominant.get('symbol')} is leading notable flow ({dominant.get('change_pct', 0.0):+,.2f}%), "
+                f"while sentiment proxy sits at {sentiment_proxy.get('score', 50.0):.1f}/100 ({sentiment_proxy.get('label', 'Neutral')})."
+            )
+            snapshot_headline = ''.join(snapshot_headline)
+        content.append(f"- **Headline:** {snapshot_headline}")
+
+        strip = []
+        for symbol in ['SPY', 'QQQ', 'DIA', 'IWM']:
+            data = market_snapshot.get(symbol, {})
+            if data:
+                change = data.get('change_pct', 0.0)
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"{symbol} {arrow} {change:+.2f}%")
+            elif symbol == 'SPY' and 'S&P 500' in index_perf:
+                change = index_perf['S&P 500']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"SPY {arrow} {change:+.2f}%")
+            elif symbol == 'QQQ' and 'NASDAQ 100' in index_perf:
+                change = index_perf['NASDAQ 100']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"QQQ {arrow} {change:+.2f}%")
+            elif symbol == 'DIA' and 'Dow Jones' in index_perf:
+                change = index_perf['Dow Jones']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"DIA {arrow} {change:+.2f}%")
+            elif symbol == 'IWM' and 'Russell 2000' in index_perf:
+                change = index_perf['Russell 2000']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"IWM {arrow} {change:+.2f}%")
+        if strip:
+            content.append(f"- **Index Strip:** {' | '.join(strip)}")
+
+        if sector_perf and len(sector_perf) >= 2:
+            best = sector_perf[0]
+            worst = sector_perf[-1]
+            content.append(
+                f"- **Sector Divergence:** {best.get('sector')} leads at {best.get('changesPercentage')}, while {worst.get('sector')} lags at {worst.get('changesPercentage')}."
+            )
+
+        if notable_movers:
+            mover_bits = []
+            for m in notable_movers[:3]:
+                mover_bits.append(f"{m.get('symbol')} ({m.get('change_pct', 0.0):+,.2f}%: {m.get('reason', 'Notable move')})")
+            content.append(f"- **Notable Movers:** {', '.join(mover_bits)}.")
+        content.append("")
         content.append("---")
         content.append("")
 
@@ -348,6 +586,7 @@ class NewsletterGenerator:
             mood_driver = "Risk-on posture with broad participation"
         elif sentiment_score <= 40:
             mood_driver = "Risk-off posture with defensive bias"
+        desk_take = mood_driver
         content.append(f"- **Desk Take:** {mood_driver}.")
         content.append("")
 
@@ -373,6 +612,31 @@ class NewsletterGenerator:
             for name, data in econ_data.items():
                 trend_icon = "▲" if data['trend'] == "Up" else "▼" if data['trend'] == "Down" else "•"
                 content.append(f"- **{name}:** {data['current']} ({trend_icon} from {data['previous']})")
+            content.append("")
+
+        if macro_panel:
+            content.append("### Fixed Macro Panel")
+            for panel in macro_panel.values():
+                content.append(f"- **{panel.get('name', 'Macro Signal')}:** {panel.get('summary', 'No summary available.')}")
+            content.append("")
+
+        if macro_panel_fallback:
+            content.append(f"- *{macro_panel_fallback}*")
+            content.append("")
+
+        if macro_panel:
+            spread_text = (macro_panel.get('yield_spread_regime') or {}).get('summary', '').lower()
+            labor_text = (macro_panel.get('labor_stress_proxy') or {}).get('summary', '').lower()
+            inflation_text = (macro_panel.get('inflation_momentum_proxy') or {}).get('summary', '').lower()
+
+            risk_bias = "Risk-on" if "steep" in spread_text and "improving" in labor_text else "Risk-off"
+            inflation_bias = "inflation cooling" if "cooling" in inflation_text else "inflation pressure"
+            labor_bias = "labor conditions firm" if "improving" in labor_text else "labor conditions mixed"
+
+            content.append("### Macro Regime")
+            content.append(f"- **Regime Bias:** {risk_bias} context from rates-curve and labor signals.")
+            content.append(f"- **Inflation Read:** {inflation_bias}; monitor duration/real-rate sensitivity.")
+            content.append(f"- **Growth/Labor Read:** {labor_bias}; position sizing should respect event volatility.")
             content.append("")
 
         # --- SECTION: SECTOR PERFORMANCE ---
@@ -436,7 +700,13 @@ class NewsletterGenerator:
             content.append("")
 
         content.append("## 5) Notable Movers")
-        if top_buys or top_sells:
+        if notable_movers:
+            for mover in notable_movers[:6]:
+                direction = '▲' if mover.get('change_pct', 0.0) >= 0 else '▼'
+                content.append(
+                    f"- **{mover.get('symbol', 'N/A')}** {direction} {mover.get('change_pct', 0.0):+,.2f}% — {mover.get('reason', 'Notable move')}"
+                )
+        elif top_buys or top_sells:
             for idea in top_buys[:3]:
                 ticker = idea.get('ticker', 'N/A')
                 score = _safe_num(idea.get('score'))
@@ -527,8 +797,10 @@ class NewsletterGenerator:
             content.append("## 11) Today's Events")
             for event in econ_calendar[:8]:
                 date = event.get('date', '')
+                event_time = event.get('time') or event.get('hour') or 'TBD'
                 title = event.get('event', 'Economic Event')
-                content.append(f"○ **{date}** {title}")
+                impact_tag = _event_impact_tag(event)
+                content.append(f"- **{date} {event_time}** — {title} `[{impact_tag}]`")
             content.append("")
 
         # --- GLOSSARY SECTION ---
@@ -543,19 +815,202 @@ class NewsletterGenerator:
 
         # 3. Enhance whole newsletter with AI for premium feel
         final_md = "\n".join(content)
+        prior_newsletter_md = self._load_prior_newsletter_text(output_path)
+        evidence_payload = self._build_evidence_payload(
+            market_news=market_news,
+            sector_perf=sector_perf,
+            index_perf=index_perf,
+            top_buys=top_buys,
+            top_sells=top_sells,
+            earnings_cal=earnings_cal,
+            econ_calendar=econ_calendar,
+        )
         if self.ai_agent.api_key:
-            logger.info("Enhancing newsletter prose with AI...")
-            final_md = self.ai_agent.enhance_newsletter(final_md)
+            logger.info("Enhancing newsletter prose with AI validation...")
+            final_md = self.ai_agent.enhance_newsletter_with_validation(
+                final_md,
+                evidence_payload=evidence_payload,
+                prior_newsletter_md=prior_newsletter_md,
+            )
 
-        # Save to file
+        qc_ok, qc_report, qc_errors = self._run_newsletter_qc(final_md)
+        if not qc_ok:
+            logger.warning(
+                "Newsletter QC failed (%s). Report: headings=%s, duplicate_headers=%s, sources=%s, duplicate_topic_ratio=%.3f. Falling back to safe template.",
+                ",".join(qc_errors),
+                int(qc_report.get("heading_count", 0)),
+                int(qc_report.get("duplicate_header_count", 0)),
+                int(qc_report.get("source_count", 0)),
+                qc_report.get("duplicate_topic_ratio", 0.0),
+            )
+            final_md = self._build_qc_fallback_template(date_str)
+        else:
+            logger.info(
+                "Newsletter QC passed: headings=%s, sources=%s, duplicate_topic_ratio=%.3f",
+                int(qc_report.get("heading_count", 0)),
+                int(qc_report.get("source_count", 0)),
+                qc_report.get("duplicate_topic_ratio", 0.0),
+            )
+
+        # Save markdown archive file
         output_path_obj = Path(output_path)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(final_md)
-            
+
+        # Build companion HTML presentation layer for email/web consumption
+        summary = market_news[0].get('summary', '') if market_news else ''
+        html_output = output_path_obj.with_suffix('.html')
+        final_html = self.render_newsletter_html(
+            date_str=date_str,
+            headline=headline,
+            summary=summary,
+            sentiment_score=sentiment_score,
+            sentiment_label=sentiment_label,
+            spy_trend=spy_trend,
+            desk_take=desk_take,
+            index_perf=index_perf,
+            sector_perf=sector_perf,
+            top_buys=top_buys,
+            top_sells=top_sells,
+            trending_entities=trending_entities,
+            market_news=market_news,
+            earnings_cal=earnings_cal,
+            econ_calendar=econ_calendar,
+        )
+        with open(html_output, 'w', encoding='utf-8') as f:
+            f.write(final_html)
+
         logger.info(f"Professional Newsletter generated at {output_path}")
+        logger.info(f"Newsletter HTML presentation generated at {html_output}")
         return output_path
+
+
+    def _read_light_template(self) -> str:
+        """Load the default light HTML template for email-safe rendering."""
+        default_template = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body>{{hero_headline}}{{market_mood}}{{indices_strip}}{{sector_table}}{{movers}}{{headlines}}{{events}}{{disclaimer}}</body>
+</html>"""
+        try:
+            if self.template_path.exists():
+                return self.template_path.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.error(f"Failed to load newsletter template: {e}")
+        return default_template
+
+    def build_hero_headline(self, date_str: str, headline: str, summary: str) -> str:
+        summary_text = summary or "Institutional desk commentary unavailable for this run; refer to section detail below."
+        return (
+            '<section class="card hero-card">'
+            '<p class="eyebrow">ALPHAINTELLIGENCE CAPITAL · DAILY BRIEF</p>'
+            f'<h1>{escape(headline)}</h1>'
+            f'<p class="subhead">{escape(summary_text)}</p>'
+            f'<p class="meta-date">{escape(date_str)}</p>'
+            '</section>'
+        )
+
+    def build_market_mood(self, sentiment_score: float, sentiment_label: str, spy_trend: str, desk_take: str) -> str:
+        return (
+            '<section class="card">'
+            '<h2>Market Mood</h2>'
+            '<div class="stats-grid">'
+            f'<div><span class="stat-label">Sentiment</span><strong>{sentiment_score:.1f}/100 ({escape(sentiment_label)})</strong></div>'
+            f'<div><span class="stat-label">SPY Trend</span><strong>{escape(spy_trend)}</strong></div>'
+            '</div>'
+            f'<p class="compact">{escape(desk_take)}</p>'
+            '</section>'
+        )
+
+    def build_indices_strip(self, index_perf: Dict[str, float]) -> str:
+        if not index_perf:
+            return ''
+        chips = []
+        for label, move in index_perf.items():
+            polarity = 'pos' if move >= 0 else 'neg'
+            chips.append(f'<span class="chip {polarity}">{escape(label)} {move:+.2f}%</span>')
+        return '<section class="card"><h2>Indices</h2><div class="chip-row">' + ''.join(chips) + '</div></section>'
+
+    def build_sector_table(self, sector_perf: List[Dict]) -> str:
+        if not sector_perf:
+            return ''
+        rows = []
+        for sector in sector_perf[:8]:
+            name = escape(str(sector.get('sector', 'N/A')))
+            change = escape(str(sector.get('changesPercentage', '0.00%')))
+            rows.append(f'<tr><td>{name}</td><td>{change}</td></tr>')
+        return (
+            '<section class="card"><h2>Sectors</h2>'
+            '<div class="table-wrap"><table><thead><tr><th>Sector</th><th>Move</th></tr></thead><tbody>'
+            + ''.join(rows) +
+            '</tbody></table></div></section>'
+        )
+
+    def build_movers(self, top_buys: List[Dict], top_sells: List[Dict], trending_entities: List[Dict]) -> str:
+        items = []
+        for idea in (top_buys or [])[:3]:
+            items.append(f"<li><strong>{escape(str(idea.get('ticker', 'N/A')))}</strong> long setup · score {float(idea.get('score') or 0):.1f}</li>")
+        for idea in (top_sells or [])[:3]:
+            items.append(f"<li><strong>{escape(str(idea.get('ticker', 'N/A')))}</strong> risk-off setup · score {float(idea.get('score') or 0):.1f}</li>")
+        if not items:
+            for ent in (trending_entities or [])[:4]:
+                items.append(f"<li><strong>{escape(str(ent.get('key', 'N/A')))}</strong> narrative volume {escape(str(ent.get('total_documents', 0)))} docs</li>")
+        if not items:
+            items.append('<li>No mover data available in this cycle.</li>')
+        return '<section class="card"><h2>Movers</h2><ul>' + ''.join(items) + '</ul></section>'
+
+    def build_headlines(self, market_news: List[Dict]) -> str:
+        if not market_news:
+            return ''
+        items = []
+        for item in market_news[:8]:
+            title = escape(str(item.get('title', 'No Title')))
+            url = escape(str(item.get('url', '#')))
+            site = escape(str(item.get('site', 'News')))
+            items.append(f'<li><a href="{url}">{title}</a><span class="source">{site}</span></li>')
+        return '<section class="card"><h2>Headlines</h2><ul class="link-list">' + ''.join(items) + '</ul></section>'
+
+    def build_events(self, earnings_cal: List[Dict], econ_calendar: List[Dict]) -> str:
+        events = []
+        for event in (earnings_cal or [])[:5]:
+            events.append(f"<li><strong>{escape(str(event.get('date', '')))}</strong> Earnings: {escape(str(event.get('symbol', 'N/A')))}</li>")
+        for event in (econ_calendar or [])[:5]:
+            events.append(f"<li><strong>{escape(str(event.get('date', '')))}</strong> {escape(str(event.get('event', 'Economic Event')))}</li>")
+        if not events:
+            events.append('<li>No scheduled catalysts captured.</li>')
+        return '<section class="card"><h2>Events</h2><ul>' + ''.join(events) + '</ul></section>'
+
+    def build_disclaimer(self) -> str:
+        return (
+            '<section class="card disclaimer">'
+            '<p><strong>Disclaimer:</strong> This content is for informational purposes only and is not investment advice.</p>'
+            '<p><a href="https://alphaintelligence.capital/unsubscribe">Unsubscribe</a></p>'
+            '</section>'
+        )
+
+    def render_newsletter_html(self, *, date_str: str, headline: str, summary: str, sentiment_score: float,
+                               sentiment_label: str, spy_trend: str, desk_take: str, index_perf: Dict[str, float],
+                               sector_perf: List[Dict], top_buys: List[Dict], top_sells: List[Dict],
+                               trending_entities: List[Dict], market_news: List[Dict], earnings_cal: List[Dict],
+                               econ_calendar: List[Dict]) -> str:
+        """Render newsletter HTML using explicit section builders and the light template."""
+        template = self._read_light_template()
+        sections = {
+            'hero_headline': self.build_hero_headline(date_str, headline, summary),
+            'market_mood': self.build_market_mood(sentiment_score, sentiment_label, spy_trend, desk_take),
+            'indices_strip': self.build_indices_strip(index_perf),
+            'sector_table': self.build_sector_table(sector_perf),
+            'movers': self.build_movers(top_buys, top_sells, trending_entities),
+            'headlines': self.build_headlines(market_news),
+            'events': self.build_events(earnings_cal, econ_calendar),
+            'disclaimer': self.build_disclaimer(),
+        }
+        html = template
+        for key, value in sections.items():
+            html = html.replace('{{' + key + '}}', value)
+        return html
 
     def generate_quarterly_newsletter(self,
                                    portfolio: any,

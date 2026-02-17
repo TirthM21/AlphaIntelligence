@@ -1,0 +1,23 @@
+{
+  "data": {
+    "ticker": "CMDB",
+    "fetch_date": "2026-02-17T21:33:42.734602",
+    "quarterly_revenue": {
+      "2025-09-30 00:00:00": 222874000.0
+    },
+    "quarterly_eps": {
+      "2025-09-30 00:00:00": 0.3
+    },
+    "gross_margin": 12.28,
+    "operating_margin": -1.93,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 44500000.0,
+      "2025-06-30 00:00:00": 34657000.0,
+      "2025-09-30 00:00:00": 32559000.0
+    },
+    "inventory_qoq_change": -6.05,
+    "inventory_to_sales_ratio": 0.146,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-17T21:33:42.735810"
+}

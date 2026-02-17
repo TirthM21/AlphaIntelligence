@@ -266,15 +266,29 @@ class NewsletterGenerator:
         except Exception as e:
             logger.error(f"Cap perf check failed: {e}")
 
-        # Major index snapshot (PRISM-style early tape)
-        try:
-            for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
-                hist = yf.Ticker(symbol).history(period='2d')
-                if len(hist) >= 2:
-                    move = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
-                    index_perf[label] = round(move, 2)
-        except Exception as e:
-            logger.error(f"Index performance check failed: {e}")
+        # Major index snapshot + sentiment/movers via Finnhub integration
+        market_snapshot = {}
+        sentiment_proxy = {"score": 50.0, "label": "Neutral", "components": []}
+        notable_movers = []
+        if self.finnhub.api_key:
+            try:
+                market_snapshot = self.finnhub.fetch_major_index_snapshot()
+                sentiment_proxy = self.finnhub.fetch_market_sentiment_proxy()
+                notable_movers = self.finnhub.fetch_notable_movers(limit=6)
+                for item in market_snapshot.values():
+                    index_perf[item.get('label', item.get('symbol', 'Index'))] = item.get('change_pct', 0.0)
+            except Exception as e:
+                logger.error(f"Finnhub snapshot check failed: {e}")
+
+        if not index_perf:
+            try:
+                for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
+                    hist = yf.Ticker(symbol).history(period='2d')
+                    if len(hist) >= 2:
+                        move = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                        index_perf[label] = round(move, 2)
+            except Exception as e:
+                logger.error(f"Index performance check failed: {e}")
 
         # 4. Generate Charts
         sector_chart_path = ""
@@ -321,6 +335,58 @@ class NewsletterGenerator:
         
         if market_news:
              content.append(f"{market_news[0].get('summary', 'Market participants are evaluating recent volatility as earnings season developments provide a mixed technical backdrop.')}")
+        content.append("")
+
+        # Compact Market Snapshot block near the top
+        content.append("## Market Snapshot")
+        snapshot_headline = f"Tape check: sentiment proxy at {sentiment_proxy.get('score', 50.0):.1f}/100 ({sentiment_proxy.get('label', 'Neutral')}) with mixed cross-asset leadership."
+        if notable_movers:
+            dominant = max(notable_movers, key=lambda x: abs(x.get('change_pct', 0.0)))
+            snapshot_headline = (
+                f"Tape check: {dominant.get('symbol')} is leading notable flow ({dominant.get('change_pct', 0.0):+,.2f}%), "
+                f"while sentiment proxy sits at {sentiment_proxy.get('score', 50.0):.1f}/100 ({sentiment_proxy.get('label', 'Neutral')})."
+            )
+            snapshot_headline = ''.join(snapshot_headline)
+        content.append(f"- **Headline:** {snapshot_headline}")
+
+        strip = []
+        for symbol in ['SPY', 'QQQ', 'DIA', 'IWM']:
+            data = market_snapshot.get(symbol, {})
+            if data:
+                change = data.get('change_pct', 0.0)
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"{symbol} {arrow} {change:+.2f}%")
+            elif symbol == 'SPY' and 'S&P 500' in index_perf:
+                change = index_perf['S&P 500']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"SPY {arrow} {change:+.2f}%")
+            elif symbol == 'QQQ' and 'NASDAQ 100' in index_perf:
+                change = index_perf['NASDAQ 100']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"QQQ {arrow} {change:+.2f}%")
+            elif symbol == 'DIA' and 'Dow Jones' in index_perf:
+                change = index_perf['Dow Jones']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"DIA {arrow} {change:+.2f}%")
+            elif symbol == 'IWM' and 'Russell 2000' in index_perf:
+                change = index_perf['Russell 2000']
+                arrow = '▲' if change >= 0 else '▼'
+                strip.append(f"IWM {arrow} {change:+.2f}%")
+        if strip:
+            content.append(f"- **Index Strip:** {' | '.join(strip)}")
+
+        if sector_perf and len(sector_perf) >= 2:
+            best = sector_perf[0]
+            worst = sector_perf[-1]
+            content.append(
+                f"- **Sector Divergence:** {best.get('sector')} leads at {best.get('changesPercentage')}, while {worst.get('sector')} lags at {worst.get('changesPercentage')}."
+            )
+
+        if notable_movers:
+            mover_bits = []
+            for m in notable_movers[:3]:
+                mover_bits.append(f"{m.get('symbol')} ({m.get('change_pct', 0.0):+,.2f}%: {m.get('reason', 'Notable move')})")
+            content.append(f"- **Notable Movers:** {', '.join(mover_bits)}.")
         content.append("")
         content.append("---")
         content.append("")
@@ -435,7 +501,13 @@ class NewsletterGenerator:
             content.append("")
 
         content.append("## 5) Notable Movers")
-        if top_buys or top_sells:
+        if notable_movers:
+            for mover in notable_movers[:6]:
+                direction = '▲' if mover.get('change_pct', 0.0) >= 0 else '▼'
+                content.append(
+                    f"- **{mover.get('symbol', 'N/A')}** {direction} {mover.get('change_pct', 0.0):+,.2f}% — {mover.get('reason', 'Notable move')}"
+                )
+        elif top_buys or top_sells:
             for idea in top_buys[:3]:
                 ticker = idea.get('ticker', 'N/A')
                 score = _safe_num(idea.get('score'))

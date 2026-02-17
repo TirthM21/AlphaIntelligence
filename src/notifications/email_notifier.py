@@ -70,8 +70,12 @@ class EmailNotifier:
             with open(newsletter_path, 'r', encoding='utf-8') as f:
                 newsletter_md = f.read()
             
-            # Convert markdown to HTML (simple conversion)
-            newsletter_html = self._markdown_to_html(newsletter_md)
+            # Prefer generated HTML companion, otherwise convert markdown with light template
+            newsletter_html_path = Path(newsletter_path).with_suffix('.html')
+            if newsletter_html_path.exists():
+                newsletter_html = newsletter_html_path.read_text(encoding='utf-8')
+            else:
+                newsletter_html = self._markdown_to_html(newsletter_md)
             
             # Create subject
             if not subject:
@@ -84,8 +88,10 @@ class EmailNotifier:
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             
-            # Add HTML body
-            html_part = MIMEText(newsletter_html, 'html')
+            # Add multipart body (plain text + HTML)
+            plain_part = MIMEText(newsletter_md, 'plain', 'utf-8')
+            html_part = MIMEText(newsletter_html, 'html', 'utf-8')
+            msg.attach(plain_part)
             msg.attach(html_part)
             
             # Attach full scan report if provided
@@ -188,8 +194,10 @@ class EmailNotifier:
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             
-            # Add HTML body
-            html_part = MIMEText(newsletter_html, 'html')
+            # Add multipart body (plain text + HTML)
+            plain_part = MIMEText(newsletter_md, 'plain', 'utf-8')
+            html_part = MIMEText(newsletter_html, 'html', 'utf-8')
+            msg.attach(plain_part)
             msg.attach(html_part)
             
             # Send email
@@ -332,33 +340,34 @@ class EmailNotifier:
             return False
     
     def _markdown_to_html(self, markdown_text: str) -> str:
-        """Convert markdown to institutional-grade HTML for email delivery.
-        
-        Uses proper line-by-line processing to avoid header/table corruption.
-        
-        Args:
-            markdown_text: Markdown content
-            
-        Returns:
-            HTML string wrapped in AlphaIntelligence Capital template
-        """
+        """Convert markdown to HTML and wrap it in the light newsletter template."""
         import re
-        
+
         lines = markdown_text.split('\n')
         html_lines = []
         in_table = False
         is_first_table_row = False
         in_list = False
-        
+
         for line in lines:
             stripped = line.strip()
+
+            image_match = re.match(r'^!\[(.*?)\]\((.*?)\)$', stripped)
+            if image_match:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                alt_text, image_src = image_match.groups()
+                html_lines.append(
+                    f'<figure><img src="{image_src}" alt="{alt_text}"><figcaption>{alt_text}</figcaption></figure>'
+                )
+                continue
             
             # Skip markdown table separator rows (|---|---|)
             if re.match(r'^\|[\s\-:|]+\|$', stripped):
-                is_first_table_row = False  # Next row is data
+                is_first_table_row = False
                 continue
-            
-            # Table rows
+
             if stripped.startswith('|') and stripped.endswith('|'):
                 if not in_table:
                     if in_list:
@@ -366,80 +375,66 @@ class EmailNotifier:
                         in_list = False
                     in_table = True
                     is_first_table_row = True
-                    html_lines.append('<table>')
-                
+                    html_lines.append('<div class="table-wrap"><table>')
                 cells = [cell.strip() for cell in stripped.split('|')[1:-1]]
                 tag = 'th' if is_first_table_row else 'td'
-                row_html = '<tr>' + ''.join(f'<{tag}>{cell}</{tag}>' for cell in cells) + '</tr>'
-                html_lines.append(row_html)
+                html_lines.append('<tr>' + ''.join(f'<{tag}>{cell}</{tag}>' for cell in cells) + '</tr>')
                 continue
-            
-            # Close table if we were in one
+
             if in_table:
-                html_lines.append('</table>')
+                html_lines.append('</table></div>')
                 in_table = False
                 is_first_table_row = False
-            
-            # Headers (must check longer prefixes first)
+
             if stripped.startswith('### '):
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append(f'<h3>{stripped[4:]}</h3>')
                 continue
-            elif stripped.startswith('## '):
+            if stripped.startswith('## '):
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append(f'<h2>{stripped[3:]}</h2>')
                 continue
-            elif stripped.startswith('# '):
+            if stripped.startswith('# '):
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append(f'<h1>{stripped[2:]}</h1>')
                 continue
-            
-            # Horizontal rule
             if stripped == '---':
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append('<hr>')
                 continue
-            
-            # List items
+
             if stripped.startswith('- '):
                 if not in_list:
                     in_list = True
                     html_lines.append('<ul>')
                 html_lines.append(f'<li>{stripped[2:]}</li>')
                 continue
-            elif in_list and not stripped.startswith('- '):
+            if in_list and not stripped.startswith('- '):
                 html_lines.append('</ul>')
                 in_list = False
-            
-            # Blockquote
+
             if stripped.startswith('> '):
                 html_lines.append(f'<blockquote>{stripped[2:]}</blockquote>')
                 continue
-            
-            # Empty lines
             if not stripped:
                 continue
-            
-            # Regular paragraph
+
             html_lines.append(f'<p>{stripped}</p>')
-        
-        # Close any open elements
+
         if in_table:
-            html_lines.append('</table>')
+            html_lines.append('</table></div>')
         if in_list:
             html_lines.append('</ul>')
-        
+
         html = '\n'.join(html_lines)
-        
-        # Inline formatting
         html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
         html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
         html = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', html)
@@ -566,7 +561,7 @@ class EmailNotifier:
                     text-decoration: underline;
                     color: #93c5fd;
                 }}
-                blockquote {{
+                blockquote {
                     background: #0e1230;
                     border-radius: 8px;
                     padding: 15px 25px;
@@ -574,7 +569,24 @@ class EmailNotifier:
                     border-left: 5px solid #c9a84c;
                     font-style: italic;
                     color: #b0b8d0;
-                }}
+                }
+                figure {
+                    margin: 20px 0;
+                    background: #0e1230;
+                    border: 1px solid #1e2a5a;
+                    border-radius: 10px;
+                    padding: 12px;
+                }
+                figure img {
+                    width: 100%;
+                    border-radius: 6px;
+                    display: block;
+                }
+                figcaption {
+                    margin-top: 8px;
+                    color: #8b95b8;
+                    font-size: 12px;
+                }
                 p {{
                     color: #d0d0d0;
                 }}

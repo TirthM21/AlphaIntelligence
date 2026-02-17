@@ -46,13 +46,7 @@ def run_fast_test():
     gen.ai_agent.generate_commentary.return_value = "Mocked stock thesis."
     gen.ai_agent.enhance_newsletter = lambda x: x # Skip AI optimization for test speed
     
-    gen.visualizer.generate_sector_chart.return_value = "data/charts/sector_performance.png"
-    gen.visualizer.generate_cap_comparison.return_value = "data/charts/cap_comparison.png"
-    
-    # Create mock charts so file existence check passes
-    Path("data/charts").mkdir(parents=True, exist_ok=True)
-    Path("data/charts/sector_performance.png").touch()
-    Path("data/charts/cap_comparison.png").touch()
+    gen.visualizer.generate_default_charts.return_value = []
 
     # Data for call
     mock_market_status = {

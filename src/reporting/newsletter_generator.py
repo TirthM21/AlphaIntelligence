@@ -1,8 +1,9 @@
 
 import logging
 import json
+import re
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
 
 import yfinance as yf
@@ -93,6 +94,104 @@ class NewsletterGenerator:
         except Exception as e:
             logger.error(f"Failed to load portfolio: {e}")
             return []
+
+    def _normalize_topic(self, text: str) -> str:
+        """Normalize a headline to a coarse topic key for duplication analysis."""
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+        words = cleaned.split()
+        tokens = [t for t in words if len(t) > 3 and t not in {"today", "market", "stocks", "stock", "news"}]
+        if not tokens:
+            tokens = words
+        return " ".join(tokens[:6])
+
+    def _build_qc_fallback_template(self, date_str: str) -> str:
+        """Return a safe fallback newsletter that satisfies required sections."""
+        lines = [
+            "# 🏛️ AlphaIntelligence Capital — Daily Market Brief",
+            f"**Date:** {date_str}",
+            "",
+            "## Executive Headline",
+            "Daily report generation completed with limited confidence checks; use a defensive interpretation.",
+            "",
+            "## 1) Snapshot",
+            "- Market internals are currently being revalidated.",
+            "- Maintain risk controls until full signal quality is restored.",
+            "",
+            "## 2) Top Headlines",
+            "- [Market structure update pending](https://alphaintelligence.capital) — *AlphaIntelligence*",
+            "- [Macro dashboard refresh pending](https://alphaintelligence.capital) — *AlphaIntelligence*",
+            "- [Portfolio monitor refresh pending](https://alphaintelligence.capital) — *AlphaIntelligence*",
+            "",
+            "## 3) Today's Events",
+            "- Economic calendar refresh in progress.",
+            "",
+            "## Disclaimer",
+            "This content is for informational purposes only and is not investment advice.",
+        ]
+        return "\n".join(lines)
+
+    def _run_newsletter_qc(self, markdown: str) -> Tuple[bool, Dict[str, float], List[str]]:
+        """Validate newsletter structure and source quality before final output."""
+        errors: List[str] = []
+        headings = re.findall(r"^(##\s+.+)$", markdown, flags=re.MULTILINE)
+        lowered_headings = [h.lower() for h in headings]
+
+        # Rule: no duplicate section headers
+        seen: Set[str] = set()
+        dupes: Set[str] = set()
+        for h in lowered_headings:
+            if h in seen:
+                dupes.add(h)
+            seen.add(h)
+        if dupes:
+            errors.append("duplicate_headers")
+
+        # Rule: required sections present
+        required_fragments = {
+            "headline": "executive headline",
+            "snapshot": "snapshot",
+            "headlines_list": "top headlines",
+            "events": "today's events",
+            "disclaimer": "disclaimer",
+        }
+        for label, fragment in required_fragments.items():
+            if fragment not in markdown.lower():
+                errors.append(f"missing_{label}")
+
+        # Rule: heading order and numbering consistency
+        numbered = re.findall(r"^##\s+(\d+)\)\s+(.+)$", markdown, flags=re.MULTILINE)
+        if numbered:
+            nums = [int(n) for n, _ in numbered]
+            expected = list(range(nums[0], nums[0] + len(nums)))
+            if nums != expected:
+                errors.append("heading_number_sequence")
+
+        # Rule: minimum source count and max duplicate-topic ratio
+        links = re.findall(r"\[[^\]]+\]\((https?://[^)]+)\)", markdown)
+        unique_sources = len(set(links))
+        min_source_count = 3
+        if unique_sources < min_source_count:
+            errors.append("insufficient_sources")
+
+        headlines_section = re.search(r"##\s+\d+\)\s+Top Headlines\n(.+?)(?:\n##\s+|\Z)", markdown, flags=re.DOTALL)
+        headline_lines = re.findall(r"^-\s+\[([^\]]+)\]", headlines_section.group(1), flags=re.MULTILINE) if headlines_section else []
+        topics = [self._normalize_topic(t) for t in headline_lines if t.strip()]
+        topic_total = len(topics)
+        topic_unique = len(set(topics)) if topics else 0
+        duplicate_ratio = 0.0
+        if topic_total:
+            duplicate_ratio = max(0.0, (topic_total - topic_unique) / topic_total)
+        max_duplicate_ratio = 0.45
+        if topic_total >= 2 and duplicate_ratio > max_duplicate_ratio:
+            errors.append("duplicate_topic_ratio")
+
+        report = {
+            "heading_count": float(len(headings)),
+            "duplicate_header_count": float(len(dupes)),
+            "source_count": float(unique_sources),
+            "duplicate_topic_ratio": round(duplicate_ratio, 3),
+        }
+        return len(errors) == 0, report, errors
 
     def generate_newsletter(self, 
                           market_status: Dict = None, 
@@ -656,6 +755,25 @@ class NewsletterGenerator:
                 final_md,
                 evidence_payload=evidence_payload,
                 prior_newsletter_md=prior_newsletter_md,
+            )
+
+        qc_ok, qc_report, qc_errors = self._run_newsletter_qc(final_md)
+        if not qc_ok:
+            logger.warning(
+                "Newsletter QC failed (%s). Report: headings=%s, duplicate_headers=%s, sources=%s, duplicate_topic_ratio=%.3f. Falling back to safe template.",
+                ",".join(qc_errors),
+                int(qc_report.get("heading_count", 0)),
+                int(qc_report.get("duplicate_header_count", 0)),
+                int(qc_report.get("source_count", 0)),
+                qc_report.get("duplicate_topic_ratio", 0.0),
+            )
+            final_md = self._build_qc_fallback_template(date_str)
+        else:
+            logger.info(
+                "Newsletter QC passed: headings=%s, sources=%s, duplicate_topic_ratio=%.3f",
+                int(qc_report.get("heading_count", 0)),
+                int(qc_report.get("source_count", 0)),
+                qc_report.get("duplicate_topic_ratio", 0.0),
             )
 
         # Save to file

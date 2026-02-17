@@ -32,6 +32,57 @@ class NewsletterGenerator:
         self.visualizer = MarketVisualizer()
         self.portfolio_path = Path(portfolio_path)
 
+    def _load_prior_newsletter_text(self, current_output_path: str) -> str:
+        """Load most recent prior newsletter markdown for anti-repetition checks."""
+        try:
+            output_dir = Path(current_output_path).parent
+            current_name = Path(current_output_path).name
+            candidates = sorted(output_dir.glob("daily_newsletter_*.md"), reverse=True)
+            for path in candidates:
+                if path.name == current_name:
+                    continue
+                return path.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.warning(f"Unable to load prior newsletter text: {e}")
+        return ""
+
+    def _build_evidence_payload(
+        self,
+        market_news: List[Dict],
+        sector_perf: List[Dict],
+        index_perf: Dict[str, float],
+        top_buys: List[Dict],
+        top_sells: List[Dict],
+        earnings_cal: List[Dict],
+        econ_calendar: List[Dict],
+    ) -> Dict:
+        """Build authoritative evidence payload used for prompt constraints and validation."""
+        sector_leader = sector_perf[0] if sector_perf else {}
+        sector_laggard = sector_perf[-1] if len(sector_perf) > 1 else {}
+
+        return {
+            'index_move': index_perf,
+            'sector_leader_laggard': {
+                'leader': {
+                    'sector': sector_leader.get('sector'),
+                    'change_pct': sector_leader.get('changesPercentage'),
+                },
+                'laggard': {
+                    'sector': sector_laggard.get('sector'),
+                    'change_pct': sector_laggard.get('changesPercentage'),
+                },
+            },
+            'mover_stats': {
+                'top_buys': top_buys[:5],
+                'top_sells': top_sells[:5],
+            },
+            'event_references': {
+                'earnings': earnings_cal[:6],
+                'economic_calendar': econ_calendar[:6],
+                'headline_news': market_news[:6],
+            },
+        }
+
     def load_portfolio(self) -> List[Dict]:
         """Load user portfolio from positions.json."""
         if not self.portfolio_path.exists():
@@ -589,9 +640,23 @@ class NewsletterGenerator:
 
         # 3. Enhance whole newsletter with AI for premium feel
         final_md = "\n".join(content)
+        prior_newsletter_md = self._load_prior_newsletter_text(output_path)
+        evidence_payload = self._build_evidence_payload(
+            market_news=market_news,
+            sector_perf=sector_perf,
+            index_perf=index_perf,
+            top_buys=top_buys,
+            top_sells=top_sells,
+            earnings_cal=earnings_cal,
+            econ_calendar=econ_calendar,
+        )
         if self.ai_agent.api_key:
-            logger.info("Enhancing newsletter prose with AI...")
-            final_md = self.ai_agent.enhance_newsletter(final_md)
+            logger.info("Enhancing newsletter prose with AI validation...")
+            final_md = self.ai_agent.enhance_newsletter_with_validation(
+                final_md,
+                evidence_payload=evidence_payload,
+                prior_newsletter_md=prior_newsletter_md,
+            )
 
         # Save to file
         output_path_obj = Path(output_path)

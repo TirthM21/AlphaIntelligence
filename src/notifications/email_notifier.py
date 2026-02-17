@@ -352,6 +352,18 @@ class EmailNotifier:
         for line in lines:
             stripped = line.strip()
 
+            image_match = re.match(r'^!\[(.*?)\]\((.*?)\)$', stripped)
+            if image_match:
+                if in_list:
+                    html_lines.append('</ul>')
+                    in_list = False
+                alt_text, image_src = image_match.groups()
+                html_lines.append(
+                    f'<figure><img src="{image_src}" alt="{alt_text}"><figcaption>{alt_text}</figcaption></figure>'
+                )
+                continue
+            
+            # Skip markdown table separator rows (|---|---|)
             if re.match(r'^\|[\s\-:|]+\|$', stripped):
                 is_first_table_row = False
                 continue
@@ -426,20 +438,200 @@ class EmailNotifier:
         html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
         html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
         html = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', html)
-
-        template_path = Path('./src/templates/newsletter_light.html')
-        if template_path.exists():
-            template = template_path.read_text(encoding='utf-8')
-            fallback_card = f'<section class="card">{html}</section>'
-            return (
-                template.replace('{{hero_headline}}', fallback_card)
-                .replace('{{market_mood}}', '')
-                .replace('{{indices_strip}}', '')
-                .replace('{{sector_table}}', '')
-                .replace('{{movers}}', '')
-                .replace('{{headlines}}', '')
-                .replace('{{events}}', '')
-                .replace('{{disclaimer}}', '')
-            )
-
-        return f"<html><body>{html}</body></html>"
+        
+        # Wrap in AlphaIntelligence Capital template
+        html_template = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{
+                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                    line-height: 1.6;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #0a0e27;
+                    color: #e0e0e0;
+                }}
+                .wrapper {{
+                    padding: 40px 20px;
+                }}
+                .header-bar {{
+                    background: linear-gradient(135deg, #131836 0%, #1a2450 100%);
+                    padding: 30px 40px;
+                    border-radius: 12px 12px 0 0;
+                    border-bottom: 3px solid #c9a84c;
+                    max-width: 800px;
+                    margin: 0 auto;
+                }}
+                .header-bar h1.brand {{
+                    color: #c9a84c;
+                    font-size: 22px;
+                    margin: 0;
+                    letter-spacing: 2px;
+                    text-transform: uppercase;
+                    border: none;
+                    padding: 0;
+                }}
+                .header-bar .tagline {{
+                    color: #8b95b8;
+                    font-size: 12px;
+                    margin-top: 4px;
+                    letter-spacing: 1px;
+                }}
+                .container {{
+                    background: #131836;
+                    padding: 40px;
+                    border-radius: 0 0 12px 12px;
+                    max-width: 800px;
+                    margin: 0 auto;
+                    border: 1px solid #1e2a5a;
+                    border-top: none;
+                }}
+                h1 {{
+                    color: #ffffff;
+                    border-bottom: 2px solid #c9a84c;
+                    padding-bottom: 12px;
+                    font-size: 24px;
+                    margin-top: 0;
+                }}
+                h2 {{
+                    color: #c9a84c;
+                    margin-top: 35px;
+                    border-bottom: 1px solid #1e2a5a;
+                    padding-bottom: 8px;
+                    font-size: 20px;
+                }}
+                h3 {{
+                    color: #8b95b8;
+                    border-left: 4px solid #c9a84c;
+                    padding-left: 15px;
+                    margin-top: 20px;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 20px 0;
+                    background: #0e1230;
+                    border-radius: 8px;
+                    overflow: hidden;
+                }}
+                th {{
+                    padding: 12px 15px;
+                    text-align: left;
+                    background: #1a2450;
+                    color: #c9a84c;
+                    text-transform: uppercase;
+                    font-size: 11px;
+                    font-weight: 600;
+                    letter-spacing: 1px;
+                    border-bottom: 2px solid #c9a84c;
+                }}
+                td {{
+                    padding: 10px 15px;
+                    text-align: left;
+                    border-bottom: 1px solid #1e2a5a;
+                    color: #d0d0d0;
+                }}
+                tr:hover td {{
+                    background: #1a2040;
+                }}
+                ul {{
+                    background: #0e1230;
+                    padding: 15px 20px 15px 35px;
+                    border-radius: 8px;
+                    border-left: 4px solid #1e2a5a;
+                    list-style-type: none;
+                }}
+                li {{
+                    margin-bottom: 8px;
+                    color: #d0d0d0;
+                }}
+                li::before {{
+                    content: '▸ ';
+                    color: #c9a84c;
+                }}
+                a {{
+                    color: #60a5fa;
+                    text-decoration: none;
+                    font-weight: 500;
+                }}
+                a:hover {{
+                    text-decoration: underline;
+                    color: #93c5fd;
+                }}
+                blockquote {
+                    background: #0e1230;
+                    border-radius: 8px;
+                    padding: 15px 25px;
+                    margin: 20px 0;
+                    border-left: 5px solid #c9a84c;
+                    font-style: italic;
+                    color: #b0b8d0;
+                }
+                figure {
+                    margin: 20px 0;
+                    background: #0e1230;
+                    border: 1px solid #1e2a5a;
+                    border-radius: 10px;
+                    padding: 12px;
+                }
+                figure img {
+                    width: 100%;
+                    border-radius: 6px;
+                    display: block;
+                }
+                figcaption {
+                    margin-top: 8px;
+                    color: #8b95b8;
+                    font-size: 12px;
+                }
+                p {{
+                    color: #d0d0d0;
+                }}
+                strong {{
+                    color: #ffffff;
+                }}
+                em {{
+                    color: #8b95b8;
+                }}
+                hr {{
+                    border: none;
+                    border-top: 1px solid #1e2a5a;
+                    margin: 30px 0;
+                }}
+                .footer {{
+                    margin-top: 40px;
+                    text-align: center;
+                    color: #4a5280;
+                    font-size: 11px;
+                    border-top: 1px solid #1e2a5a;
+                    padding-top: 25px;
+                }}
+                .footer a {{
+                    color: #c9a84c;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="wrapper">
+                <div class="header-bar">
+                    <h1 class="brand">🏦 AlphaIntelligence Capital</h1>
+                    <div class="tagline">Systematic Alpha Research & Quantitative Intelligence</div>
+                </div>
+                <div class="container">
+                    {html}
+                    <div class="footer">
+                        AlphaIntelligence Capital | Quantitative Alpha Research<br>
+                        <a href="#">Fund Dashboard</a> | <a href="#">Research Portal</a><br><br>
+                        &copy; 2026 AlphaIntelligence Capital. Confidential &amp; Proprietary.<br>
+                        This communication is intended for authorized recipients only.
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html_template

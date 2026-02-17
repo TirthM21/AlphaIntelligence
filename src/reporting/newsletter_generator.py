@@ -14,7 +14,7 @@ from ..data.finnhub_fetcher import FinnhubFetcher
 from ..data.marketaux_fetcher import MarketauxFetcher
 from ..data.fred_fetcher import FredFetcher
 from ..ai.ai_agent import AIAgent
-from .visualizer import MarketVisualizer
+from .visualizer import ChartArtifact, MarketVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -462,13 +462,12 @@ class NewsletterGenerator:
             except Exception as e:
                 logger.error(f"Index performance check failed: {e}")
 
-        # 4. Generate Charts
-        sector_chart_path = ""
-        cap_chart_path = ""
-        if sector_perf:
-            sector_chart_path = self.visualizer.generate_sector_chart(sector_perf)
-        if cap_perf:
-            cap_chart_path = self.visualizer.generate_cap_comparison(cap_perf)
+        # 4. Generate Default Chart Suite
+        chart_artifacts: List[ChartArtifact] = self.visualizer.generate_default_charts(
+            index_perf=index_perf,
+            sector_perf=sector_perf,
+            market_status=market_status or {},
+        )
 
         # 5. QotD & Historical insights (Multiple QotDs for PRISM style)
         qotds = []
@@ -656,12 +655,14 @@ class NewsletterGenerator:
                     content.append(f"- **{s.get('sector')}:** {change_str}")
             content.append("")
 
-        if cap_chart_path and Path(cap_chart_path).exists():
-            content.append(f"![Market-cap segment performance]({cap_chart_path})")
-            content.append("")
-        if sector_chart_path and Path(sector_chart_path).exists():
-            content.append(f"![Sector performance chart]({sector_chart_path})")
-            content.append("")
+        if chart_artifacts:
+            content.append("### Chartbook")
+            for chart in chart_artifacts:
+                if Path(chart.path).exists():
+                    content.append(f"#### {chart.title}")
+                    content.append(f"![{chart.title}]({chart.path})")
+                    content.append(f"*{chart.caption}*")
+                    content.append("")
 
         # --- SECTION: TRADE IDEAS ---
         content.append("## 2) Actionable Watchlist")

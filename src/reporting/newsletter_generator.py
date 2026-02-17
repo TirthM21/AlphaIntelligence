@@ -1,6 +1,7 @@
 
 import logging
 import json
+import re
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
@@ -31,6 +32,159 @@ class NewsletterGenerator:
         self.ai_agent = AIAgent()
         self.visualizer = MarketVisualizer()
         self.portfolio_path = Path(portfolio_path)
+        self.newsletter_state_path = Path("./data/cache/newsletter_state.json")
+
+    def _load_newsletter_state(self) -> Dict:
+        if not self.newsletter_state_path.exists():
+            return {"runs": []}
+        try:
+            with open(self.newsletter_state_path, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+                if isinstance(state, dict) and isinstance(state.get("runs"), list):
+                    return state
+        except Exception as e:
+            logger.warning(f"Failed to read newsletter state: {e}")
+        return {"runs": []}
+
+    def _save_newsletter_state(self, state: Dict) -> None:
+        try:
+            self.newsletter_state_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.newsletter_state_path, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to persist newsletter state: {e}")
+
+    def _extract_entities_topics(self, items: List[Dict]) -> Dict[str, List[str]]:
+        topic_keywords = {
+            "rates": ["rate", "yield", "fed", "treasury"],
+            "volatility": ["volatility", "vix", "drawdown", "swing"],
+            "earnings": ["earnings", "guidance", "eps", "revenue"],
+            "macro": ["inflation", "cpi", "jobs", "unemployment", "gdp"],
+            "tech": ["ai", "chip", "software", "cloud"],
+            "energy": ["oil", "gas", "energy", "opec"],
+            "banks": ["bank", "credit", "lending", "financial"]
+        }
+        entities = set()
+        topics = set()
+        for item in items:
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+            for token in re.findall(r"\b[A-Z]{2,5}\b", title):
+                entities.add(token)
+            lower = title.lower()
+            for topic, terms in topic_keywords.items():
+                if any(t in lower for t in terms):
+                    topics.add(topic)
+        return {
+            "entities": sorted(entities),
+            "topics": sorted(topics)
+        }
+
+    def _select_diverse_market_news(self, items: List[Dict], state: Dict, limit: int = 8) -> List[Dict]:
+        recent_runs = state.get("runs", [])[-5:]
+        recent_titles = {
+            t.lower()
+            for run in recent_runs
+            for t in run.get("headline_titles", [])
+            if isinstance(t, str)
+        }
+        recent_topics = {
+            t
+            for run in recent_runs
+            for t in run.get("topics", [])
+            if isinstance(t, str)
+        }
+        recent_entities = {
+            e
+            for run in recent_runs
+            for e in run.get("entities", [])
+            if isinstance(e, str)
+        }
+
+        scored = []
+        for idx, item in enumerate(items):
+            title = (item.get("title") or "")
+            analysis = self._extract_entities_topics([item])
+            score = 100 - idx
+            if title.lower() in recent_titles:
+                score -= 40
+            topic_overlap = len(set(analysis["topics"]) & recent_topics)
+            entity_overlap = len(set(analysis["entities"]) & recent_entities)
+            score -= (topic_overlap * 8 + entity_overlap * 3)
+            item["_topics"] = analysis["topics"]
+            item["_entities"] = analysis["entities"]
+            scored.append((score, idx, item))
+
+        scored.sort(key=lambda x: (-x[0], x[1]))
+
+        selected = []
+        used_sources = set()
+        used_topics = set()
+        for _, _, item in scored:
+            if len(selected) >= limit:
+                break
+            source = (item.get("site") or "News").strip().lower()
+            topics = set(item.get("_topics", []))
+
+            source_penalty = source in used_sources
+            topic_penalty = bool(topics and topics.issubset(used_topics))
+            if len(selected) < 3:
+                # Early picks favor broad source/topic diversification.
+                if source_penalty and topic_penalty:
+                    continue
+            selected.append(item)
+            used_sources.add(source)
+            used_topics.update(topics)
+
+        if len(selected) < min(limit, len(scored)):
+            selected_keys = {(s.get("title"), s.get("url")) for s in selected}
+            for _, _, item in scored:
+                key = (item.get("title"), item.get("url"))
+                if key in selected_keys:
+                    continue
+                selected.append(item)
+                if len(selected) >= limit:
+                    break
+        return selected
+
+    def _rotate_optional_sections(self) -> List[str]:
+        section_pool = [
+            "Volatility Watch",
+            "Rates Pulse",
+            "Earnings Spotlight",
+            "Insider/Flow Watch"
+        ]
+        day_index = datetime.now().toordinal()
+        shift = day_index % len(section_pool)
+        count = 2 + (day_index % 2)
+        rotated = section_pool[shift:] + section_pool[:shift]
+        return rotated[:count]
+
+    def _pick_fresh_text(self, candidates: List[str], recent_texts: List[str]) -> str:
+        recent_norm = {(t or '').strip().lower() for t in recent_texts if isinstance(t, str)}
+        for text in candidates:
+            if text.strip().lower() not in recent_norm:
+                return text
+        return candidates[0] if candidates else ""
+
+    def _latest_previous_newsletter(self, output_path: str) -> Optional[Path]:
+        newsletters_dir = Path("./data/newsletters")
+        if not newsletters_dir.exists():
+            return None
+        candidates = [
+            p for p in newsletters_dir.glob("daily_newsletter_*.md")
+            if str(p) != str(Path(output_path))
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+
+    def _extract_markdown_links(self, markdown_text: str) -> List[Dict]:
+        links = []
+        for title, url in re.findall(r"\[([^\]]+)\]\((https?://[^\)]+)\)", markdown_text):
+            links.append({"title": title.strip(), "url": url.strip()})
+        return links
 
     def load_portfolio(self) -> List[Dict]:
         """Load user portfolio from positions.json."""
@@ -57,7 +211,9 @@ class NewsletterGenerator:
             output_path = str(output_dir / f"daily_newsletter_{timestamp}.md")
             
         logger.info(f"Generating professional daily newsletter to {output_path}...")
-        
+        state = self._load_newsletter_state()
+        recent_runs = state.get("runs", [])[-5:]
+
         # 1. Initialize data containers
         econ_data = {}
         market_news = []
@@ -218,7 +374,10 @@ class NewsletterGenerator:
             except Exception as e:
                 logger.error(f"News fallback failed: {e}")
 
-        market_news = _dedupe_news(market_news, limit=12)
+        market_news = _dedupe_news(market_news, limit=16)
+        market_news = self._select_diverse_market_news(market_news, state, limit=8)
+        news_analysis = self._extract_entities_topics(market_news)
+
 
         if not portfolio_news and portfolio_tickers:
             try:
@@ -318,9 +477,17 @@ class NewsletterGenerator:
         if market_news:
             headline = market_news[0]['title']
         content.append(f"## Executive Headline: {headline}")
-        
-        if market_news:
-             content.append(f"{market_news[0].get('summary', 'Market participants are evaluating recent volatility as earnings season developments provide a mixed technical backdrop.')}")
+
+        lead_candidates = [
+            (market_news[0].get('summary') or '').strip() if market_news else "",
+            "Market participants are evaluating recent volatility as earnings season developments provide a mixed technical backdrop.",
+            "Cross-asset signals remain mixed, with institutions leaning selective rather than broadly directional.",
+            "Positioning remains tactical as desks balance macro uncertainty with idiosyncratic opportunity."
+        ]
+        lead_candidates = [x for x in lead_candidates if x]
+        lead_sentence = self._pick_fresh_text(lead_candidates, [r.get('lead_sentence', '') for r in recent_runs])
+        if lead_sentence:
+            content.append(lead_sentence)
         content.append("")
         content.append("---")
         content.append("")
@@ -401,6 +568,13 @@ class NewsletterGenerator:
 
         # --- SECTION: TRADE IDEAS ---
         content.append("## 2) Actionable Watchlist")
+        watchlist_intro = self._pick_fresh_text([
+            "Focus list balances asymmetric upside with clearly defined risk controls.",
+            "Setups below emphasize favorable reward-to-risk with catalyst visibility.",
+            "The desk is prioritizing names with technical confirmation and fundamental support."
+        ], [r.get("watchlist_intro", "") for r in recent_runs])
+        content.append(watchlist_intro)
+        content.append("")
         if top_buys:
             content.append("### High-Conviction Long Setups")
             for i, idea in enumerate(top_buys[:5], 1):
@@ -474,6 +648,13 @@ class NewsletterGenerator:
         # --- SECTION: TOP HEADLINES ---
         if market_news:
             content.append("## 8) Top Headlines")
+            headlines_intro = self._pick_fresh_text([
+                "Selected for source and topic diversity to reduce repeat narrative risk.",
+                "Cross-source scan prioritizing fresh narratives over recycled headlines.",
+                "Headline tape below reflects both macro and single-name dispersion."
+            ], [r.get("headlines_intro", "") for r in recent_runs])
+            content.append(headlines_intro)
+            content.append("")
             for item in market_news[:8]:
                 title = item.get('title', 'No Title')
                 url = item.get('url', '#')
@@ -521,6 +702,53 @@ class NewsletterGenerator:
                 content.append(f"- **{date}** — {symbol} (EPS est: {eps_est})")
             content.append("")
 
+        # --- SECTION: OPTIONAL ROTATION ---
+        optional_sections = self._rotate_optional_sections()
+        for section_name in optional_sections:
+            content.append(f"## {section_name}")
+            if section_name == "Volatility Watch":
+                vol_msg = "Volatility remains contained relative to recent highs; continue to size entries tactically."
+                if sentiment_score <= 40:
+                    vol_msg = "Volatility regime remains elevated; risk budgeting should stay defensive until breadth improves."
+                content.append(f"- {vol_msg}")
+            elif section_name == "Rates Pulse":
+                fed = econ_data.get('Fed Funds', {})
+                if fed:
+                    content.append(f"- Policy backdrop: Fed Funds at **{fed.get('current')}** (prev {fed.get('previous')}).")
+                else:
+                    content.append("- Treasury-rate direction is mixed; monitor real-yield sensitivity in duration assets.")
+            elif section_name == "Earnings Spotlight":
+                if earnings_cal:
+                    for event in earnings_cal[:3]:
+                        content.append(f"- **{event.get('symbol', 'N/A')}** reports {event.get('date', '')}.")
+                else:
+                    content.append("- No high-confidence earnings catalyst loaded in this run.")
+            elif section_name == "Insider/Flow Watch":
+                if trending_entities:
+                    for ent in trending_entities[:3]:
+                        content.append(f"- Narrative flow elevated in **{ent.get('key')}** ({ent.get('total_documents', 0)} docs).")
+                else:
+                    content.append("- Flow signals are neutral in configured feeds; stay selective on crowded momentum.")
+            content.append("")
+
+        # --- SECTION: DELTA VS YESTERDAY ---
+        prev_newsletter = self._latest_previous_newsletter(output_path)
+        previous_links = []
+        if prev_newsletter and prev_newsletter.exists():
+            try:
+                previous_links = self._extract_markdown_links(prev_newsletter.read_text(encoding='utf-8'))
+            except Exception as e:
+                logger.warning(f"Unable to parse previous newsletter for delta block: {e}")
+        prev_urls = {x.get('url') for x in previous_links if x.get('url')}
+        new_since_yesterday = [item for item in market_news if item.get('url') and item.get('url') not in prev_urls]
+        content.append("## New Since Yesterday")
+        if new_since_yesterday:
+            for item in new_since_yesterday[:5]:
+                content.append(f"- [{item.get('title', 'No Title')}]({item.get('url', '#')}) — *{item.get('site', 'News')}*")
+        else:
+            content.append("- No materially new headline links versus the previous newsletter artifact.")
+        content.append("")
+
         # --- SECTION: TODAY'S EVENTS ---
         if econ_calendar:
             content.append("## 11) Today's Events")
@@ -552,6 +780,20 @@ class NewsletterGenerator:
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(final_md)
+
+        state_runs = state.get("runs", [])
+        state_runs.append({
+            "timestamp": datetime.now().isoformat(),
+            "headline_titles": [x.get("title") for x in market_news[:8] if x.get("title")],
+            "entities": news_analysis.get("entities", []),
+            "topics": news_analysis.get("topics", []),
+            "lead_sentence": lead_sentence,
+            "watchlist_intro": watchlist_intro,
+            "headlines_intro": headlines_intro if market_news else "",
+            "optional_sections": optional_sections
+        })
+        state["runs"] = state_runs[-5:]
+        self._save_newsletter_state(state)
             
         logger.info(f"Professional Newsletter generated at {output_path}")
         return output_path

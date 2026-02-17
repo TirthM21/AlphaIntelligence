@@ -70,8 +70,12 @@ class EmailNotifier:
             with open(newsletter_path, 'r', encoding='utf-8') as f:
                 newsletter_md = f.read()
             
-            # Convert markdown to HTML (simple conversion)
-            newsletter_html = self._markdown_to_html(newsletter_md)
+            # Prefer generated HTML companion, otherwise convert markdown with light template
+            newsletter_html_path = Path(newsletter_path).with_suffix('.html')
+            if newsletter_html_path.exists():
+                newsletter_html = newsletter_html_path.read_text(encoding='utf-8')
+            else:
+                newsletter_html = self._markdown_to_html(newsletter_md)
             
             # Create subject
             if not subject:
@@ -84,8 +88,10 @@ class EmailNotifier:
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             
-            # Add HTML body
-            html_part = MIMEText(newsletter_html, 'html')
+            # Add multipart body (plain text + HTML)
+            plain_part = MIMEText(newsletter_md, 'plain', 'utf-8')
+            html_part = MIMEText(newsletter_html, 'html', 'utf-8')
+            msg.attach(plain_part)
             msg.attach(html_part)
             
             # Attach full scan report if provided
@@ -188,8 +194,10 @@ class EmailNotifier:
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             
-            # Add HTML body
-            html_part = MIMEText(newsletter_html, 'html')
+            # Add multipart body (plain text + HTML)
+            plain_part = MIMEText(newsletter_md, 'plain', 'utf-8')
+            html_part = MIMEText(newsletter_html, 'html', 'utf-8')
+            msg.attach(plain_part)
             msg.attach(html_part)
             
             # Send email
@@ -332,33 +340,22 @@ class EmailNotifier:
             return False
     
     def _markdown_to_html(self, markdown_text: str) -> str:
-        """Convert markdown to institutional-grade HTML for email delivery.
-        
-        Uses proper line-by-line processing to avoid header/table corruption.
-        
-        Args:
-            markdown_text: Markdown content
-            
-        Returns:
-            HTML string wrapped in AlphaIntelligence Capital template
-        """
+        """Convert markdown to HTML and wrap it in the light newsletter template."""
         import re
-        
+
         lines = markdown_text.split('\n')
         html_lines = []
         in_table = False
         is_first_table_row = False
         in_list = False
-        
+
         for line in lines:
             stripped = line.strip()
-            
-            # Skip markdown table separator rows (|---|---|)
+
             if re.match(r'^\|[\s\-:|]+\|$', stripped):
-                is_first_table_row = False  # Next row is data
+                is_first_table_row = False
                 continue
-            
-            # Table rows
+
             if stripped.startswith('|') and stripped.endswith('|'):
                 if not in_table:
                     if in_list:
@@ -366,260 +363,83 @@ class EmailNotifier:
                         in_list = False
                     in_table = True
                     is_first_table_row = True
-                    html_lines.append('<table>')
-                
+                    html_lines.append('<div class="table-wrap"><table>')
                 cells = [cell.strip() for cell in stripped.split('|')[1:-1]]
                 tag = 'th' if is_first_table_row else 'td'
-                row_html = '<tr>' + ''.join(f'<{tag}>{cell}</{tag}>' for cell in cells) + '</tr>'
-                html_lines.append(row_html)
+                html_lines.append('<tr>' + ''.join(f'<{tag}>{cell}</{tag}>' for cell in cells) + '</tr>')
                 continue
-            
-            # Close table if we were in one
+
             if in_table:
-                html_lines.append('</table>')
+                html_lines.append('</table></div>')
                 in_table = False
                 is_first_table_row = False
-            
-            # Headers (must check longer prefixes first)
+
             if stripped.startswith('### '):
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append(f'<h3>{stripped[4:]}</h3>')
                 continue
-            elif stripped.startswith('## '):
+            if stripped.startswith('## '):
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append(f'<h2>{stripped[3:]}</h2>')
                 continue
-            elif stripped.startswith('# '):
+            if stripped.startswith('# '):
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append(f'<h1>{stripped[2:]}</h1>')
                 continue
-            
-            # Horizontal rule
             if stripped == '---':
                 if in_list:
                     html_lines.append('</ul>')
                     in_list = False
                 html_lines.append('<hr>')
                 continue
-            
-            # List items
+
             if stripped.startswith('- '):
                 if not in_list:
                     in_list = True
                     html_lines.append('<ul>')
                 html_lines.append(f'<li>{stripped[2:]}</li>')
                 continue
-            elif in_list and not stripped.startswith('- '):
+            if in_list and not stripped.startswith('- '):
                 html_lines.append('</ul>')
                 in_list = False
-            
-            # Blockquote
+
             if stripped.startswith('> '):
                 html_lines.append(f'<blockquote>{stripped[2:]}</blockquote>')
                 continue
-            
-            # Empty lines
             if not stripped:
                 continue
-            
-            # Regular paragraph
+
             html_lines.append(f'<p>{stripped}</p>')
-        
-        # Close any open elements
+
         if in_table:
-            html_lines.append('</table>')
+            html_lines.append('</table></div>')
         if in_list:
             html_lines.append('</ul>')
-        
+
         html = '\n'.join(html_lines)
-        
-        # Inline formatting
         html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
         html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
         html = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', html)
-        
-        # Wrap in AlphaIntelligence Capital template
-        html_template = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body {{
-                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                    line-height: 1.6;
-                    margin: 0;
-                    padding: 0;
-                    background-color: #0a0e27;
-                    color: #e0e0e0;
-                }}
-                .wrapper {{
-                    padding: 40px 20px;
-                }}
-                .header-bar {{
-                    background: linear-gradient(135deg, #131836 0%, #1a2450 100%);
-                    padding: 30px 40px;
-                    border-radius: 12px 12px 0 0;
-                    border-bottom: 3px solid #c9a84c;
-                    max-width: 800px;
-                    margin: 0 auto;
-                }}
-                .header-bar h1.brand {{
-                    color: #c9a84c;
-                    font-size: 22px;
-                    margin: 0;
-                    letter-spacing: 2px;
-                    text-transform: uppercase;
-                    border: none;
-                    padding: 0;
-                }}
-                .header-bar .tagline {{
-                    color: #8b95b8;
-                    font-size: 12px;
-                    margin-top: 4px;
-                    letter-spacing: 1px;
-                }}
-                .container {{
-                    background: #131836;
-                    padding: 40px;
-                    border-radius: 0 0 12px 12px;
-                    max-width: 800px;
-                    margin: 0 auto;
-                    border: 1px solid #1e2a5a;
-                    border-top: none;
-                }}
-                h1 {{
-                    color: #ffffff;
-                    border-bottom: 2px solid #c9a84c;
-                    padding-bottom: 12px;
-                    font-size: 24px;
-                    margin-top: 0;
-                }}
-                h2 {{
-                    color: #c9a84c;
-                    margin-top: 35px;
-                    border-bottom: 1px solid #1e2a5a;
-                    padding-bottom: 8px;
-                    font-size: 20px;
-                }}
-                h3 {{
-                    color: #8b95b8;
-                    border-left: 4px solid #c9a84c;
-                    padding-left: 15px;
-                    margin-top: 20px;
-                }}
-                table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin: 20px 0;
-                    background: #0e1230;
-                    border-radius: 8px;
-                    overflow: hidden;
-                }}
-                th {{
-                    padding: 12px 15px;
-                    text-align: left;
-                    background: #1a2450;
-                    color: #c9a84c;
-                    text-transform: uppercase;
-                    font-size: 11px;
-                    font-weight: 600;
-                    letter-spacing: 1px;
-                    border-bottom: 2px solid #c9a84c;
-                }}
-                td {{
-                    padding: 10px 15px;
-                    text-align: left;
-                    border-bottom: 1px solid #1e2a5a;
-                    color: #d0d0d0;
-                }}
-                tr:hover td {{
-                    background: #1a2040;
-                }}
-                ul {{
-                    background: #0e1230;
-                    padding: 15px 20px 15px 35px;
-                    border-radius: 8px;
-                    border-left: 4px solid #1e2a5a;
-                    list-style-type: none;
-                }}
-                li {{
-                    margin-bottom: 8px;
-                    color: #d0d0d0;
-                }}
-                li::before {{
-                    content: '▸ ';
-                    color: #c9a84c;
-                }}
-                a {{
-                    color: #60a5fa;
-                    text-decoration: none;
-                    font-weight: 500;
-                }}
-                a:hover {{
-                    text-decoration: underline;
-                    color: #93c5fd;
-                }}
-                blockquote {{
-                    background: #0e1230;
-                    border-radius: 8px;
-                    padding: 15px 25px;
-                    margin: 20px 0;
-                    border-left: 5px solid #c9a84c;
-                    font-style: italic;
-                    color: #b0b8d0;
-                }}
-                p {{
-                    color: #d0d0d0;
-                }}
-                strong {{
-                    color: #ffffff;
-                }}
-                em {{
-                    color: #8b95b8;
-                }}
-                hr {{
-                    border: none;
-                    border-top: 1px solid #1e2a5a;
-                    margin: 30px 0;
-                }}
-                .footer {{
-                    margin-top: 40px;
-                    text-align: center;
-                    color: #4a5280;
-                    font-size: 11px;
-                    border-top: 1px solid #1e2a5a;
-                    padding-top: 25px;
-                }}
-                .footer a {{
-                    color: #c9a84c;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="wrapper">
-                <div class="header-bar">
-                    <h1 class="brand">🏦 AlphaIntelligence Capital</h1>
-                    <div class="tagline">Systematic Alpha Research & Quantitative Intelligence</div>
-                </div>
-                <div class="container">
-                    {html}
-                    <div class="footer">
-                        AlphaIntelligence Capital | Quantitative Alpha Research<br>
-                        <a href="#">Fund Dashboard</a> | <a href="#">Research Portal</a><br><br>
-                        &copy; 2026 AlphaIntelligence Capital. Confidential &amp; Proprietary.<br>
-                        This communication is intended for authorized recipients only.
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html_template
+
+        template_path = Path('./src/templates/newsletter_light.html')
+        if template_path.exists():
+            template = template_path.read_text(encoding='utf-8')
+            fallback_card = f'<section class="card">{html}</section>'
+            return (
+                template.replace('{{hero_headline}}', fallback_card)
+                .replace('{{market_mood}}', '')
+                .replace('{{indices_strip}}', '')
+                .replace('{{sector_table}}', '')
+                .replace('{{movers}}', '')
+                .replace('{{headlines}}', '')
+                .replace('{{events}}', '')
+                .replace('{{disclaimer}}', '')
+            )
+
+        return f"<html><body>{html}</body></html>"

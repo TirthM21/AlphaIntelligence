@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 from html import escape
+from urllib.parse import urlparse
 
 import yfinance as yf
 import yaml
@@ -315,6 +316,89 @@ class NewsletterGenerator:
             tokens = words
         return " ".join(tokens[:6])
 
+    def _source_domain(self, url: str, site: str = "") -> str:
+        parsed = urlparse((url or "").strip())
+        domain = (parsed.netloc or "").lower().replace("www.", "")
+        if domain:
+            return domain
+        return (site or "unknown").strip().lower()
+
+    def _rank_and_dedupe_news(
+        self,
+        items: List[Dict],
+        limit: int = 8,
+        max_source_ratio: float = 0.4,
+    ) -> List[Dict]:
+        """Deterministically rank and dedupe headlines by relevance+recency."""
+        now_ts = datetime.now().timestamp()
+        normalized: List[Dict] = []
+        seen_urls = set()
+        seen_topic_keys = set()
+        seen_domain_topic = set()
+
+        for item in items:
+            title = (item.get("title") or "").strip()
+            url = (item.get("url") or "").strip()
+            if not title or not url:
+                continue
+            domain = self._source_domain(url, item.get("site", ""))
+            topic_key = self._normalize_topic(title)
+            if url in seen_urls or topic_key in seen_topic_keys or (domain, topic_key) in seen_domain_topic:
+                continue
+
+            raw_ts = item.get("datetime")
+            try:
+                ts = float(raw_ts or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            age_hours = max(0.0, (now_ts - ts) / 3600.0) if ts else 72.0
+            recency = max(0.0, 120.0 - min(120.0, age_hours))
+            relevance = min(40.0, len(title) * 0.45) + min(20.0, len((item.get("summary") or "")) * 0.04)
+            score = recency + relevance
+
+            normalized.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "site": (item.get("site") or "News").strip(),
+                    "summary": (item.get("summary") or "").strip(),
+                    "datetime": item.get("datetime"),
+                    "domain": domain,
+                    "topic_key": topic_key,
+                    "score": round(score, 2),
+                }
+            )
+            seen_urls.add(url)
+            seen_topic_keys.add(topic_key)
+            seen_domain_topic.add((domain, topic_key))
+
+        ranked = sorted(normalized, key=lambda x: (-x.get("score", 0.0), x.get("title", ""), x.get("url", "")))
+        if not ranked:
+            return []
+
+        source_counts: Dict[str, int] = {}
+        selected: List[Dict] = []
+        for item in ranked:
+            source = item.get("domain") or item.get("site", "news").lower()
+            projected_total = len(selected) + 1
+            projected_count = source_counts.get(source, 0) + 1
+            if projected_total >= 3 and (projected_count / projected_total) > max_source_ratio:
+                continue
+            source_counts[source] = projected_count
+            selected.append(item)
+            if len(selected) >= limit:
+                break
+
+        if len(selected) < min(limit, len(ranked)):
+            existing_urls = {x.get("url") for x in selected}
+            for item in ranked:
+                if item.get("url") in existing_urls:
+                    continue
+                selected.append(item)
+                if len(selected) >= limit:
+                    break
+        return selected
+
     def _build_qc_fallback_template(self, date_str: str) -> str:
         """Return a safe fallback newsletter that satisfies required sections."""
         lines = [
@@ -565,34 +649,8 @@ class NewsletterGenerator:
         econ_calendar = []
         trending_entities = []
         earnings_cal = []
-
-        def _clean_news_item(item: Dict) -> Optional[Dict]:
-            title = (item.get('title') or '').strip()
-            url = (item.get('url') or '').strip()
-            if not title or not url:
-                return None
-            return {
-                'title': title,
-                'url': url,
-                'site': (item.get('site') or 'News').strip(),
-                'summary': (item.get('summary') or '').strip()
-            }
-
-        def _dedupe_news(items: List[Dict], limit: int = 10) -> List[Dict]:
-            seen = set()
-            output = []
-            for raw in items:
-                cleaned = _clean_news_item(raw)
-                if not cleaned:
-                    continue
-                key = (cleaned['title'].lower(), cleaned['url'])
-                if key in seen:
-                    continue
-                seen.add(key)
-                output.append(cleaned)
-                if len(output) >= limit:
-                    break
-            return output
+        ipo_calendar = []
+        sentiment_snaps = {"top_buys": [], "top_sells": []}
         
         # 2. Section registry: primary + fallback provider execution per section
         fmp_fetcher = self.fetcher.fmp_fetcher if (self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher) else None
@@ -603,18 +661,48 @@ class NewsletterGenerator:
 
         def _execute_section_plan(plan: SectionDataPlan) -> Any:
             try:
-                payload = plan.fetch_fn(plan.primary_provider)
-                if _has_data(payload):
-                    section_status[plan.section_name] = {"status": "success", "provider": plan.primary_provider}
-                    return payload
+                logger.info("Fetching Finnhub market news & calendars...")
+                market_news.extend(self.finnhub.fetch_top_market_news(limit=10, category='general'))
+                earnings_cal = self.finnhub.fetch_earnings_calendar_standardized(days_forward=5, limit=20)
+                econ_calendar = self.finnhub.fetch_economic_calendar() # Might return [] if not premium
+                ipo_calendar = self.finnhub.fetch_ipo_calendar(days_forward=10, limit=10)
+
+                buy_tickers = [x.get('ticker', '') for x in (top_buys or []) if x.get('ticker')]
+                sell_tickers = [x.get('ticker', '') for x in (top_sells or []) if x.get('ticker')]
+                sentiment_snaps = self.finnhub.fetch_top_ticker_sentiment_snapshots(
+                    top_buy_tickers=buy_tickers,
+                    top_sell_tickers=sell_tickers,
+                    per_side=3,
+                )
+                
+                if portfolio_tickers:
+                    for t in portfolio_tickers[:3]:
+                        p_news = self.finnhub.fetch_company_news(t)
+                        for item in p_news[:2]:
+                            portfolio_news.append({
+                                'title': item.get('headline'),
+                                'symbol': t,
+                                'url': item.get('url'),
+                                'summary': item.get('summary', '')
+                            })
             except Exception as e:
                 logger.error(f"Section {plan.section_name} primary provider {plan.primary_provider} failed: {e}")
 
             try:
-                payload = plan.fetch_fn(plan.fallback_provider)
-                if _has_data(payload):
-                    section_status[plan.section_name] = {"status": "fallback", "provider": plan.fallback_provider}
-                    return payload
+                logger.info("Fetching Marketaux trending entities...")
+                trending_entities = self.marketaux.fetch_trending_entities()
+                
+                # If news is still thin, add from Marketaux
+                if len(market_news) < 3:
+                    ma_news = self.marketaux.fetch_market_news(limit=5)
+                    for item in ma_news:
+                        market_news.append({
+                            'title': item.get('title'),
+                            'url': item.get('url'),
+                            'site': item.get('source', 'Marketaux'),
+                            'summary': item.get('snippet', ''),
+                            'datetime': item.get('published_at_ts') or item.get('published_at')
+                        })
             except Exception as e:
                 logger.error(f"Section {plan.section_name} fallback provider {plan.fallback_provider} failed: {e}")
 
@@ -776,6 +864,24 @@ class NewsletterGenerator:
 
         if fmp_fetcher:
             try:
+                # FMP used for DAILY news as requested
+                logger.info("Fetching FMP daily market news...")
+                market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
+                if market_news_fmp:
+                    for item in market_news_fmp:
+                        market_news.append({
+                            'title': item.get('title'),
+                            'url': item.get('url'),
+                            'site': 'FMP News',
+                            'summary': item.get('text', ''),
+                            'datetime': item.get('publishedDate')
+                        })
+                
+                # FMP for economic calendar if not already populated
+                if not econ_calendar:
+                    econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
+                
+                # FMP for portfolio news DAILY 
                 if not portfolio_news and portfolio_tickers:
                     portfolio_news = fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
             except Exception as e:
@@ -795,67 +901,13 @@ class NewsletterGenerator:
                         market_news.append({
                             'title': n.get('title'),
                             'url': n.get('link'),
-                            'site': 'Yahoo Finance'
+                            'site': 'Yahoo Finance',
+                            'summary': '',
                         })
             except Exception as e:
                 logger.error(f"News fallback failed: {e}")
 
-        for provider in macro_providers:
-            if provider == "fred":
-                try:
-                    logger.info("Fetching FRED macro economic indicators...")
-                    macro_indicators = {
-                        'GDP': 'GDP',
-                        'CPI': 'CPIAUCSL',
-                        'Unemployment': 'UNRATE',
-                        'Fed Funds': 'FEDFUNDS'
-                    }
-                    for name, series_id in macro_indicators.items():
-                        obs = self.fred.fetch_series_observations(series_id, limit=2)
-                        if obs:
-                            latest = obs[-1]
-                            prev = obs[-2] if len(obs) > 1 else {}
-                            val = latest.get('value', '0')
-                            p_val = prev.get('value', '0')
-
-                            try:
-                                val_f = float(val) if val != '.' else 0
-                                p_val_f = float(p_val) if p_val != '.' else 0
-                                trend = "Up" if val_f > p_val_f else "Down"
-                            except (TypeError, ValueError):
-                                trend = "Stable"
-
-                            econ_data[name] = {
-                                'current': val,
-                                'date': latest.get('date'),
-                                'previous': p_val,
-                                'trend': trend
-                            }
-                    macro_panel = self.fred.get_fixed_macro_panel()
-                    if macro_panel:
-                        break
-                except Exception as e:
-                    logger.error(f"FRED fetch failed: {e}")
-                    macro_panel_fallback = "Macro panel unavailable due to FRED fetch error."
-
-            elif provider == "fmp":
-                if not (self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher):
-                    continue
-                try:
-                    if not econ_calendar:
-                        econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
-                    if not macro_panel:
-                        macro_panel_fallback = "Macro panel is configured with FMP fallback but fixed macro panel currently requires FRED."
-                except Exception as e:
-                    logger.error(f"FMP macro fallback failed: {e}")
-
-        if not macro_panel and not macro_panel_fallback and "fred" in self.provider_matrix.get("macro", []):
-            macro_panel_fallback = (
-                "FRED API key missing or provider disabled: macro panel uses fallback narrative. "
-                "Set FRED_API_KEY and enable 'fred' in config.yaml for live regime reads."
-            )
-
-        market_news = _dedupe_news(market_news, limit=16)
+        market_news = self._rank_and_dedupe_news(market_news, limit=12, max_source_ratio=0.4)
         market_news = self._select_diverse_market_news(market_news, state, limit=8)
         news_analysis = self._extract_entities_topics(market_news)
 
@@ -1169,6 +1221,11 @@ class NewsletterGenerator:
                 thesis = idea.get('fundamental_snapshot') or "Technical and fundamental signals are aligned."
                 content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
                 content.append(f"   - Thesis: {thesis}")
+                snap = next((x for x in sentiment_snaps.get("top_buys", []) if x.get("ticker") == ticker), None)
+                if snap:
+                    content.append(
+                        f"   - Finnhub Signal Check: bullish {snap.get('bullish_pct', 0.0):.1f}% | bearish {snap.get('bearish_pct', 0.0):.1f}% | buzz {snap.get('buzz', 0.0):.2f}"
+                    )
             content.append("")
 
         if top_sells:
@@ -1180,6 +1237,11 @@ class NewsletterGenerator:
                 reason = idea.get('reason') or "Momentum deterioration or risk-control trigger."
                 content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
                 content.append(f"   - Exit Logic: {reason}")
+                snap = next((x for x in sentiment_snaps.get("top_sells", []) if x.get("ticker") == ticker), None)
+                if snap:
+                    content.append(
+                        f"   - Finnhub Signal Check: bullish {snap.get('bullish_pct', 0.0):.1f}% | bearish {snap.get('bearish_pct', 0.0):.1f}% | news score {snap.get('company_news_score', 0.0):.2f}"
+                    )
             content.append("")
 
         if fund_performance_md:
@@ -1237,15 +1299,15 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: TOP HEADLINES ---
+        content.append("## 8) Top Headlines")
+        headlines_intro = self._pick_fresh_text([
+            "Finnhub-first headline tape ranked on relevance + recency, then constrained for source/topic concentration.",
+            "Cross-source scan prioritizing fresh narratives over recycled headlines.",
+            "Headline tape below reflects both macro and single-name dispersion."
+        ], [r.get("headlines_intro", "") for r in recent_runs])
+        content.append(headlines_intro)
+        content.append("")
         if market_news:
-            content.append("## 8) Top Headlines")
-            headlines_intro = self._pick_fresh_text([
-                "Selected for source and topic diversity to reduce repeat narrative risk.",
-                "Cross-source scan prioritizing fresh narratives over recycled headlines.",
-                "Headline tape below reflects both macro and single-name dispersion."
-            ], [r.get("headlines_intro", "") for r in recent_runs])
-            content.append(headlines_intro)
-            content.append("")
             for item in market_news[:8]:
                 title = item.get('title', 'No Title')
                 url = item.get('url', '#')
@@ -1255,7 +1317,9 @@ class NewsletterGenerator:
                     content.append(f"- [{title}]({url}) — *{site}*\n  - {summary[:180].rstrip()}...")
                 else:
                     content.append(f"- [{title}]({url}) — *{site}*")
-            content.append("")
+        else:
+            content.append("- Finnhub headline feed unavailable in this run; fallback feeds did not pass ranking/dedupe gates.")
+        content.append("")
 
         if portfolio_news:
             content.append("## 9) Portfolio-Specific News")
@@ -1311,9 +1375,11 @@ class NewsletterGenerator:
             elif section_name == "Earnings Spotlight":
                 if earnings_cal:
                     for event in earnings_cal[:3]:
-                        content.append(f"- **{event.get('symbol', 'N/A')}** reports {event.get('date', '')}.")
+                        content.append(
+                            f"- **{event.get('symbol', 'N/A')}** reports {event.get('date', '')} ({event.get('hour', 'TBD')})."
+                        )
                 else:
-                    content.append("- No high-confidence earnings catalyst loaded in this run.")
+                    content.append("- Finnhub earnings calendar returned no high-confidence catalyst in this run.")
             elif section_name == "Insider/Flow Watch":
                 if trending_entities:
                     for ent in trending_entities[:3]:
@@ -1341,15 +1407,24 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: TODAY'S EVENTS ---
+        content.append("## 11) Today's Events")
         if econ_calendar:
-            content.append("## 11) Today's Events")
             for event in econ_calendar[:8]:
                 date = event.get('date', '')
                 event_time = event.get('time') or event.get('hour') or 'TBD'
                 title = event.get('event', 'Economic Event')
                 impact_tag = _event_impact_tag(event)
                 content.append(f"- **{date} {event_time}** — {title} `[{impact_tag}]`")
-            content.append("")
+        elif earnings_cal or ipo_calendar:
+            for event in earnings_cal[:4]:
+                content.append(
+                    f"- **{event.get('date', '')} {event.get('hour', 'TBD')}** — {event.get('symbol', 'N/A')} earnings `[{_event_impact_tag({'event': 'earnings'})}]`"
+                )
+            for event in ipo_calendar[:3]:
+                content.append(f"- **{event.get('date', '')}** — IPO watch: {event.get('symbol', 'N/A')} ({event.get('exchange', 'N/A')})")
+        else:
+            content.append("- Finnhub calendars unavailable for this run; no validated event tape to publish.")
+        content.append("")
 
         # --- GLOSSARY SECTION ---
         content.append("## 📖 Glossary")

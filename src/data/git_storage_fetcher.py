@@ -87,9 +87,8 @@ class GitStorageFetcher:
     def fetch_fundamentals_smart(self, ticker: str) -> Dict:
         """Fetch fundamentals with Git-based caching.
 
-        Uses earnings-aware refresh:
-        - During earnings season (6-week windows): refresh if >7 days old
-        - Outside earnings: refresh if >90 days old
+        Uses quarterly refresh for fundamentals:
+        - Refresh only when cache is older than ~one quarter (90 days)
         - Never fetched: fetch now
 
         Fundamentals are stored as JSON files in Git repository,
@@ -173,14 +172,9 @@ class GitStorageFetcher:
             fetched_at = datetime.fromisoformat(fetched_at_str)
             days_old = (datetime.now() - fetched_at).days
 
-            # Always refresh if >90 days old (stale)
-            if days_old > 90:
-                logger.info(f"{ticker}: Stale data ({days_old} days), refreshing")
-                return True
-
-            # During earnings season: refresh weekly
-            if self._is_earnings_season() and days_old >= 7:
-                logger.info(f"{ticker}: Earnings season refresh ({days_old} days old)")
+            # Quarterly-only fundamentals refresh for daily speed.
+            if days_old >= 90:
+                logger.info(f"{ticker}: Quarterly refresh due ({days_old} days old)")
                 return True
 
             # Cache is still valid

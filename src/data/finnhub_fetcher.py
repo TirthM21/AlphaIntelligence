@@ -215,6 +215,52 @@ class FinnhubFetcher:
                 pickle.dump(feed, f)
         return feed
 
+
+    def fetch_us_stock_symbols(self) -> List[Dict]:
+        """Fetch US-listed equity symbols for universe fallback usage."""
+        cache_path = self._get_cache_path("us_stock_symbols")
+        if self._is_cache_valid(cache_path, hours=24):
+            with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+
+        if not self.api_key:
+            return []
+
+        exchanges = ["US"]
+        symbols: List[Dict] = []
+        seen = set()
+
+        for exch in exchanges:
+            try:
+                response = self.session.get(
+                    f"{self.base_url}/stock/symbol",
+                    params={"exchange": exch, "token": self.api_key},
+                    timeout=20,
+                )
+                response.raise_for_status()
+                payload = response.json() or []
+                if not isinstance(payload, list):
+                    continue
+
+                for item in payload:
+                    symbol = (item.get('symbol') or '').strip().upper()
+                    name = (item.get('description') or symbol).strip()
+                    instrument_type = (item.get('type') or '').upper()
+                    if not symbol or symbol in seen:
+                        continue
+                    if instrument_type and instrument_type not in {'COMMON STOCK', 'EQS', 'ETP'}:
+                        continue
+                    seen.add(symbol)
+                    symbols.append({'symbol': symbol, 'name': name})
+            except Exception as exc:
+                logger.warning(f"Failed to fetch Finnhub US symbols for exchange {exch}: {exc}")
+
+        if symbols:
+            with open(cache_path, 'wb') as f:
+                pickle.dump(symbols, f)
+
+        return symbols
+
     def _get_cache_path(self, key: str) -> Path:
         return self.cache_dir / f"{key}.pkl"
 

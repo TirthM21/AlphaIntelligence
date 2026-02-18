@@ -12,10 +12,12 @@ Strategy:
 
 import logging
 import os
+from datetime import datetime
 from typing import Dict, Optional
 
 from .sec_fetcher import SECFetcher
 from .fmp_fetcher import FMPFetcher
+from .finnhub_fetcher import FinnhubFetcher
 from .fundamentals_fetcher import (
     create_fundamental_snapshot, 
     analyze_fundamentals_for_signal,
@@ -32,6 +34,7 @@ class EnhancedFundamentalsFetcher:
         self.fmp_available = False
         self.fmp_fetcher = None
         self.sec_fetcher = SECFetcher()
+        self.finnhub_fetcher = FinnhubFetcher()
 
         # Check if FMP API key is available
         fmp_api_key = os.getenv('FMP_API_KEY')
@@ -79,9 +82,43 @@ class EnhancedFundamentalsFetcher:
             else:
                 logger.warning(f"FMP daily limit reached ({self.fmp_daily_limit}). Using yfinance.")
 
+        # Finnhub fallback before yfinance
+        finnhub_data = self._fetch_from_finnhub(ticker)
+        if finnhub_data:
+            logger.info(f"FUNDAMENTALS [{ticker}]: Source = Finnhub (Fallback)")
+            return finnhub_data
+
         # Fall back to yfinance
         logger.info(f"FUNDAMENTALS [{ticker}]: Source = yfinance (Standard)")
         return fetch_quarterly_financials(ticker)
+
+    def _fetch_from_finnhub(self, ticker: str) -> Dict[str, any]:
+        """Fetch lightweight fallback fundamentals from Finnhub quote/metrics."""
+        if not self.finnhub_fetcher or not self.finnhub_fetcher.api_key:
+            return {}
+
+        try:
+            quote = self.finnhub_fetcher._safe_get('quote', {'symbol': ticker})
+            metrics = self.finnhub_fetcher._safe_get('stock/metric', {'symbol': ticker, 'metric': 'all'})
+            metric_data = metrics.get('metric', {}) if isinstance(metrics, dict) else {}
+
+            if not quote and not metric_data:
+                return {}
+
+            return {
+                'ticker': ticker,
+                'fetch_date': datetime.now().isoformat(),
+                'data_source': 'finnhub',
+                'current_price': quote.get('c') if isinstance(quote, dict) else None,
+                'week_52_high': metric_data.get('52WeekHigh'),
+                'week_52_low': metric_data.get('52WeekLow'),
+                'pe_ratio': metric_data.get('peNormalizedAnnual') or metric_data.get('peTTM'),
+                'pb_ratio': metric_data.get('pbQuarterly'),
+                'market_cap': metric_data.get('marketCapitalization')
+            }
+        except Exception as e:
+            logger.warning(f"Finnhub fallback failed for {ticker}: {e}")
+            return {}
 
     def download_sec_filing(self, ticker: str, filing_type: str = '10-Q') -> str:
         """Download latest SEC filing."""

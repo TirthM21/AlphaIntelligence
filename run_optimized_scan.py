@@ -312,10 +312,15 @@ def main():
     parser.add_argument('--use-fmp', action='store_true', help='Use FMP for enhanced fundamentals on buy signals')
     parser.add_argument('--git-storage', action='store_true', help='Use Git-based storage for fundamentals (recommended)')
     parser.add_argument('--download-sec', action='store_true', help='Download SEC 10-Qs for top buy signals (requires sec-edgar-toolkit)')
-    parser.add_argument('--send-email', action='store_true', help='Send newsletter via email (requires EMAIL_SENDER and EMAIL_PASSWORD env vars)')
+    parser.add_argument('--send-email', action='store_true', help='Force-enable newsletter email delivery')
+    parser.add_argument('--no-email', action='store_true', help='Disable newsletter email delivery')
     parser.add_argument('--diagnostics', action='store_true', help='Run diagnostic check for API keys and SEC access')
 
     args = parser.parse_args()
+
+    # Email defaults: enabled when configured unless explicitly disabled
+    send_email_default = os.getenv('SEND_NEWSLETTER_EMAIL', '1').strip().lower() not in {'0', 'false', 'no'}
+    args.send_email = (args.send_email or send_email_default) and not args.no_email
 
     # Presets
     if args.conservative:
@@ -370,7 +375,7 @@ def main():
     if args.use_fmp and fundamentals_fetcher.fmp_available:
         logger.info("FMP enabled - will use for buy signal fundamentals (DCF + Insider + Margins)")
     elif args.use_fmp:
-        logger.warning("--use-fmp specified but FMP_API_KEY not set. Using yfinance only.")
+        logger.warning("--use-fmp specified but FMP_API_KEY not set. Using Finnhub fallback then yfinance.")
 
     try:
         # Fetch universe
@@ -637,6 +642,8 @@ def main():
                             logger.info(f"✅ Delivery complete: {success_count}/{len(subscribers)} successful.")
                 except Exception as email_err:
                     logger.error(f"Failed to send newsletter email: {email_err}")
+            else:
+                logger.info("Newsletter email delivery disabled for this run. Use --send-email to force or set SEND_NEWSLETTER_EMAIL=1.")
             
             # Print preview
             print("\\n" + "="*60) 

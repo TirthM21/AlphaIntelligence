@@ -1,14 +1,16 @@
 
 import logging
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 from html import escape
 
 import yfinance as yf
+import yaml
 
 from ..data.enhanced_fundamentals import EnhancedFundamentalsFetcher
 from ..data.finnhub_fetcher import FinnhubFetcher
@@ -38,7 +40,15 @@ class SectionQCReport:
 class NewsletterGenerator:
     """Generates a high-quality, professional daily market newsletter."""
 
-    def __init__(self, portfolio_path: str = "./data/positions.json"):
+    DEFAULT_PROVIDER_MATRIX = {
+        "macro": ["fred", "fmp"],
+        "headlines": ["finnhub", "marketaux", "fmp"],
+        "sector_performance": ["fmp", "finnhub"],
+        "prices": ["yfinance"],
+    }
+    SUPPORTED_PROVIDERS = {"fred", "fmp", "finnhub", "marketaux", "yfinance"}
+
+    def __init__(self, portfolio_path: str = "./data/positions.json", config_path: str = "config.yaml"):
         try:
             self.fetcher = EnhancedFundamentalsFetcher()
         except Exception as e:
@@ -50,7 +60,88 @@ class NewsletterGenerator:
         self.ai_agent = AIAgent()
         self.visualizer = MarketVisualizer()
         self.portfolio_path = Path(portfolio_path)
+        self.config_path = Path(config_path)
         self.newsletter_state_path = Path("./data/cache/newsletter_state.json")
+        self.newsletter_config = self._load_newsletter_config()
+        self.provider_matrix = self._build_provider_matrix(self.newsletter_config)
+        self.provider_status = self._build_provider_status()
+        self._log_provider_diagnostics()
+
+    def _load_newsletter_config(self) -> Dict:
+        if not self.config_path.exists():
+            logger.warning(
+                "Config path %s not found. Newsletter provider matrix will use defaults.",
+                self.config_path,
+            )
+            return {}
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception as exc:
+            logger.error("Failed to parse %s: %s", self.config_path, exc)
+            return {}
+
+    def _build_provider_matrix(self, config: Dict) -> Dict[str, List[str]]:
+        configured = ((config or {}).get("newsletter") or {}).get("providers") or {}
+        matrix: Dict[str, List[str]] = {}
+        for section, defaults in self.DEFAULT_PROVIDER_MATRIX.items():
+            raw = configured.get(section, defaults)
+            if not isinstance(raw, list):
+                logger.warning("newsletter.providers.%s must be a list. Falling back to defaults.", section)
+                raw = defaults
+
+            normalized = []
+            for provider in raw:
+                name = str(provider).strip().lower()
+                if not name:
+                    continue
+                if name not in self.SUPPORTED_PROVIDERS:
+                    logger.warning("Unsupported provider '%s' in newsletter.providers.%s; skipping.", name, section)
+                    continue
+                normalized.append(name)
+
+            if not normalized:
+                logger.warning("No valid providers configured for section '%s'; using defaults %s.", section, defaults)
+                normalized = defaults.copy()
+            matrix[section] = normalized
+        return matrix
+
+    def _build_provider_status(self) -> Dict[str, Dict]:
+        fmp_key = None
+        if self.fetcher and self.fetcher.fmp_fetcher:
+            fmp_key = self.fetcher.fmp_fetcher.api_key
+        elif self.fetcher and self.fetcher.fmp_available:
+            fmp_key = os.getenv("FMP_API_KEY")
+
+        status = {
+            "finnhub": {"active": bool(self.finnhub.api_key), "missing_key": not bool(self.finnhub.api_key), "key_env": "FINNHUB_API_KEY"},
+            "marketaux": {"active": bool(self.marketaux.api_key), "missing_key": not bool(self.marketaux.api_key), "key_env": "MARKETAUX_API_KEY"},
+            "fred": {"active": bool(self.fred.api_key), "missing_key": not bool(self.fred.api_key), "key_env": "FRED_API_KEY"},
+            "fmp": {"active": bool(fmp_key), "missing_key": not bool(fmp_key), "key_env": "FMP_API_KEY"},
+            "yfinance": {"active": True, "missing_key": False, "key_env": None},
+        }
+        return status
+
+    def _get_runtime_providers(self, section: str) -> List[str]:
+        providers = self.provider_matrix.get(section, [])
+        return [p for p in providers if self.provider_status.get(p, {}).get("active", False)]
+
+    def _log_provider_diagnostics(self) -> None:
+        logger.info("Newsletter provider diagnostics at startup:")
+        for section in self.DEFAULT_PROVIDER_MATRIX:
+            configured = self.provider_matrix.get(section, [])
+            active = [p for p in configured if self.provider_status.get(p, {}).get("active", False)]
+            logger.info(" - %s fallback order: %s", section, " -> ".join(configured) if configured else "(none)")
+            logger.info(" - %s active providers: %s", section, ", ".join(active) if active else "(none)")
+
+        missing = []
+        for name, details in self.provider_status.items():
+            if details.get("missing_key"):
+                missing.append(f"{name} ({details.get('key_env')})")
+        if missing:
+            logger.warning("Newsletter providers with missing API keys: %s", ", ".join(missing))
+        else:
+            logger.info("Newsletter providers with API keys are fully configured.")
 
     def _load_newsletter_state(self) -> Dict:
         if not self.newsletter_state_path.exists():
@@ -503,122 +594,199 @@ class NewsletterGenerator:
                     break
             return output
         
-        # 2. Try Finnhub & Marketaux NEWS first (Higher quality)
-        if self.finnhub.api_key:
-            try:
-                logger.info("Fetching Finnhub market news & calendars...")
-                finnhub_news = self.finnhub.fetch_market_news(category='general')
-                for item in finnhub_news[:6]:
-                    market_news.append({
-                        'title': item.get('headline'),
-                        'url': item.get('url'),
-                        'site': item.get('source', 'Finnhub'),
-                        'summary': item.get('summary', '')
-                    })
-                
-                earnings_cal = self.finnhub.fetch_earnings_calendar(days_forward=5)
-                econ_calendar = self.finnhub.fetch_economic_calendar() # Might return [] if not premium
-                
-                if portfolio_tickers:
-                    for t in portfolio_tickers[:3]:
-                        p_news = self.finnhub.fetch_company_news(t)
-                        for item in p_news[:2]:
-                            portfolio_news.append({
-                                'title': item.get('headline'),
-                                'symbol': t,
-                                'url': item.get('url'),
-                                'summary': item.get('summary', '')
-                            })
-            except Exception as e:
-                logger.error(f"Finnhub news fetch failed: {e}")
+        # 2. Section registry: primary + fallback provider execution per section
+        fmp_fetcher = self.fetcher.fmp_fetcher if (self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher) else None
+        section_status: Dict[str, Dict[str, str]] = {}
 
-        # Try Marketaux for additional context & trending
-        if self.marketaux.api_key:
-            try:
-                logger.info("Fetching Marketaux trending entities...")
-                trending_entities = self.marketaux.fetch_trending_entities()
-                
-                # If news is still thin, add from Marketaux
-                if len(market_news) < 3:
-                    ma_news = self.marketaux.fetch_market_news(limit=5)
-                    for item in ma_news:
-                        market_news.append({
-                            'title': item.get('title'),
-                            'url': item.get('url'),
-                            'site': item.get('source', 'Marketaux'),
-                            'summary': item.get('snippet', '')
-                        })
-            except Exception as e:
-                logger.error(f"Marketaux fetch failed: {e}")
+        def _has_data(data: Any) -> bool:
+            return data not in (None, {}, [])
 
-        # Try FRED for Macro Data (Highest priority for macro)
-        try:
-            logger.info("Fetching FRED macro economic indicators...")
-            macro_indicators = {
-                'GDP': 'GDP',
-                'CPI': 'CPIAUCSL',
-                'Unemployment': 'UNRATE',
-                'Fed Funds': 'FEDFUNDS'
-            }
-            if self.fred.api_key:
-                for name, series_id in macro_indicators.items():
-                    obs = self.fred.fetch_series_observations(series_id, limit=2)
-                    if obs:
+        def _execute_section_plan(plan: SectionDataPlan) -> Any:
+            try:
+                payload = plan.fetch_fn(plan.primary_provider)
+                if _has_data(payload):
+                    section_status[plan.section_name] = {"status": "success", "provider": plan.primary_provider}
+                    return payload
+            except Exception as e:
+                logger.error(f"Section {plan.section_name} primary provider {plan.primary_provider} failed: {e}")
+
+            try:
+                payload = plan.fetch_fn(plan.fallback_provider)
+                if _has_data(payload):
+                    section_status[plan.section_name] = {"status": "fallback", "provider": plan.fallback_provider}
+                    return payload
+            except Exception as e:
+                logger.error(f"Section {plan.section_name} fallback provider {plan.fallback_provider} failed: {e}")
+
+            section_status[plan.section_name] = {"status": "failed", "provider": "none"}
+            return None
+
+        def _diag_renderer(data: Any) -> str:
+            if isinstance(data, list):
+                return f"items={len(data)}"
+            if isinstance(data, dict):
+                return f"keys={len(data)}"
+            return "items=0"
+
+        def _fetch_macro_rates(provider: str) -> Dict[str, Any]:
+            if provider == "fred":
+                payload: Dict[str, Any] = {"econ_data": {}, "macro_panel": {}, "macro_panel_fallback": ""}
+                macro_indicators = {
+                    'GDP': 'GDP',
+                    'CPI': 'CPIAUCSL',
+                    'Unemployment': 'UNRATE',
+                    'Fed Funds': 'FEDFUNDS'
+                }
+                if self.fred.api_key:
+                    for name, series_id in macro_indicators.items():
+                        obs = self.fred.fetch_series_observations(series_id, limit=2)
+                        if not obs:
+                            continue
                         latest = obs[-1]
                         prev = obs[-2] if len(obs) > 1 else {}
                         val = latest.get('value', '0')
                         p_val = prev.get('value', '0')
-
                         try:
                             val_f = float(val) if val != '.' else 0
                             p_val_f = float(p_val) if p_val != '.' else 0
                             trend = "Up" if val_f > p_val_f else "Down"
                         except (TypeError, ValueError):
                             trend = "Stable"
-
-                        econ_data[name] = {
+                        payload["econ_data"][name] = {
                             'current': val,
                             'date': latest.get('date'),
                             'previous': p_val,
                             'trend': trend
                         }
-            macro_panel = self.fred.get_fixed_macro_panel()
-            if not self.fred.api_key:
-                macro_panel_fallback = (
-                    "FRED API key missing: macro panel uses fallback narrative. "
-                    "Set FRED_API_KEY for live regime reads."
-                )
-        except Exception as e:
-            logger.error(f"FRED fetch failed: {e}")
-            macro_panel_fallback = "Macro panel unavailable due to FRED fetch error."
+                payload["macro_panel"] = self.fred.get_fixed_macro_panel()
+                if not self.fred.api_key:
+                    payload["macro_panel_fallback"] = (
+                        "FRED API key missing: macro panel uses fallback narrative. "
+                        "Set FRED_API_KEY for live regime reads."
+                    )
+                return payload
 
-        # Fallback/Supplemental Data from FMP
-        if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+            if provider == "fmp" and fmp_fetcher:
+                return {
+                    "econ_data": fmp_fetcher.fetch_macro_indicators(),
+                    "macro_panel": {},
+                    "macro_panel_fallback": "Using FMP macro fallback; FRED panel unavailable."
+                }
+            return {}
+
+        def _fetch_economic_calendar(provider: str) -> List[Dict]:
+            if provider == "fred":
+                releases = self.fred.fetch_releases(limit=8) if self.fred.api_key else []
+                return [{"event": r.get("name", "FRED Release"), "date": r.get("realtime_start", ""), "time": "TBD", "impact": "Medium"} for r in releases]
+            if provider == "fmp" and fmp_fetcher:
+                return fmp_fetcher.fetch_economic_calendar(days_forward=3)
+            return []
+
+        def _fetch_market_headlines(provider: str) -> List[Dict]:
+            rows: List[Dict] = []
+            if provider == "finnhub" and self.finnhub.api_key:
+                for item in self.finnhub.fetch_market_news(category='general')[:8]:
+                    rows.append({
+                        'title': item.get('headline'),
+                        'url': item.get('url'),
+                        'site': item.get('source', 'Finnhub'),
+                        'summary': item.get('summary', '')
+                    })
+            elif provider == "fmp" and fmp_fetcher:
+                for item in fmp_fetcher.fetch_market_news(limit=10):
+                    rows.append({
+                        'title': item.get('title'),
+                        'url': item.get('url'),
+                        'site': 'FMP News',
+                        'summary': item.get('text', '')
+                    })
+            return rows
+
+        def _fetch_market_sentiment(provider: str) -> Dict:
+            if provider == "finnhub" and self.finnhub.api_key:
+                return self.finnhub.fetch_market_sentiment_proxy()
+            return {}
+
+        def _fetch_earnings_calendar(provider: str) -> List[Dict]:
+            if provider == "finnhub" and self.finnhub.api_key:
+                return self.finnhub.fetch_earnings_calendar(days_forward=5)
+            if provider == "fmp" and fmp_fetcher:
+                proxy = fmp_fetcher.fetch_market_news(limit=8)
+                return [{"symbol": n.get("symbol", "N/A"), "date": n.get("publishedDate", ""), "hour": "TBD"} for n in proxy]
+            return []
+
+        def _fetch_sector_performance(provider: str) -> List[Dict]:
+            if provider == "fmp" and fmp_fetcher:
+                return fmp_fetcher.fetch_sector_performance()
+            if provider == "finnhub" and self.finnhub.api_key:
+                snapshot = self.finnhub.fetch_major_index_snapshot()
+                return [{"sector": symbol, "changesPercentage": f"{data.get('change_pct', 0)}%"} for symbol, data in snapshot.items()]
+            return []
+
+        def _fetch_movers(provider: str) -> List[Dict]:
+            if provider == "fmp" and fmp_fetcher:
+                proxy_news = fmp_fetcher.fetch_market_news(limit=6)
+                return [{"symbol": n.get('symbol', 'N/A'), "change_pct": 0.0, "reason": n.get('title', 'FMP mover proxy')} for n in proxy_news]
+            if provider == "finnhub" and self.finnhub.api_key:
+                return self.finnhub.fetch_notable_movers(limit=6)
+            return []
+
+        def _fetch_fundamentals_snippets(provider: str) -> List[Dict]:
+            snippets: List[Dict] = []
+            if provider == "fmp" and self.fetcher:
+                for ticker in portfolio_tickers[:3]:
+                    if self.fetcher.fetch_all_metrics(ticker):
+                        snippets.append({"symbol": ticker, "summary": "FMP fundamentals retrieved"})
+            elif provider == "finnhub" and self.finnhub.api_key:
+                for ticker in portfolio_tickers[:3]:
+                    if self.finnhub.fetch_basic_financials(ticker):
+                        snippets.append({"symbol": ticker, "summary": "Finnhub basic financials retrieved"})
+            return snippets
+
+        section_plans: List[SectionDataPlan] = [
+            SectionDataPlan("macro", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 6, "24h"),
+            SectionDataPlan("rates", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 4, "24h"),
+            SectionDataPlan("economic_calendar", "fred", "fmp", _fetch_economic_calendar, _diag_renderer, 8, "4h"),
+            SectionDataPlan("market_headlines", "finnhub", "fmp", _fetch_market_headlines, _diag_renderer, 8, "1h"),
+            SectionDataPlan("market_sentiment", "finnhub", "fmp", _fetch_market_sentiment, _diag_renderer, 1, "15m"),
+            SectionDataPlan("earnings_calendar", "finnhub", "fmp", _fetch_earnings_calendar, _diag_renderer, 8, "12h"),
+            SectionDataPlan("sector_performance", "fmp", "finnhub", _fetch_sector_performance, _diag_renderer, 11, "1h"),
+            SectionDataPlan("movers", "fmp", "finnhub", _fetch_movers, _diag_renderer, 6, "15m"),
+            SectionDataPlan("fundamentals_snippets", "fmp", "finnhub", _fetch_fundamentals_snippets, _diag_renderer, 3, "24h"),
+        ]
+
+        section_results: Dict[str, Any] = {}
+        for plan in section_plans:
+            section_results[plan.section_name] = _execute_section_plan(plan)
+
+        macro_payload = section_results.get("macro") or {}
+        econ_data = macro_payload.get("econ_data", {})
+        macro_panel = macro_payload.get("macro_panel", {})
+        macro_panel_fallback = macro_payload.get("macro_panel_fallback", "")
+        market_news = section_results.get("market_headlines") or []
+        earnings_cal = section_results.get("earnings_calendar") or []
+        econ_calendar = section_results.get("economic_calendar") or []
+
+        if self.marketaux.api_key:
             try:
-                # FMP used for DAILY news as requested
-                logger.info("Fetching FMP daily market news...")
-                market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
-                if market_news_fmp:
-                    for item in market_news_fmp:
-                        market_news.append({
-                            'title': item.get('title'),
-                            'url': item.get('url'),
-                            'site': 'FMP News',
-                            'summary': item.get('text', '')
-                        })
-                
-                # FMP for economic calendar if not already populated
-                if not econ_calendar:
-                    econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
-                
-                # FMP for portfolio news DAILY 
-                if not portfolio_news and portfolio_tickers:
-                    portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
+                logger.info("Fetching Marketaux trending entities...")
+                trending_entities = self.marketaux.fetch_trending_entities()
             except Exception as e:
-                logger.error(f"Failed to fetch FMP daily news: {e}")
+                logger.error(f"Marketaux fetch failed: {e}")
 
-        # Fallback for news if everything else failed
-        if not market_news:
+        if fmp_fetcher:
+            try:
+                if not portfolio_news and portfolio_tickers:
+                    portfolio_news = fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
+            except Exception as e:
+                logger.error(f"Failed to fetch FMP supplemental data: {e}")
+
+                    if not portfolio_news and portfolio_tickers:
+                        portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
+                except Exception as e:
+                    logger.error(f"Failed to fetch FMP daily news: {e}")
+
+        if not market_news and "yfinance" in headline_providers:
             try:
                 logger.info("Falling back to basic yfinance news...")
                 for t in ['SPY', 'QQQ', 'DIA']:
@@ -631,6 +799,61 @@ class NewsletterGenerator:
                         })
             except Exception as e:
                 logger.error(f"News fallback failed: {e}")
+
+        for provider in macro_providers:
+            if provider == "fred":
+                try:
+                    logger.info("Fetching FRED macro economic indicators...")
+                    macro_indicators = {
+                        'GDP': 'GDP',
+                        'CPI': 'CPIAUCSL',
+                        'Unemployment': 'UNRATE',
+                        'Fed Funds': 'FEDFUNDS'
+                    }
+                    for name, series_id in macro_indicators.items():
+                        obs = self.fred.fetch_series_observations(series_id, limit=2)
+                        if obs:
+                            latest = obs[-1]
+                            prev = obs[-2] if len(obs) > 1 else {}
+                            val = latest.get('value', '0')
+                            p_val = prev.get('value', '0')
+
+                            try:
+                                val_f = float(val) if val != '.' else 0
+                                p_val_f = float(p_val) if p_val != '.' else 0
+                                trend = "Up" if val_f > p_val_f else "Down"
+                            except (TypeError, ValueError):
+                                trend = "Stable"
+
+                            econ_data[name] = {
+                                'current': val,
+                                'date': latest.get('date'),
+                                'previous': p_val,
+                                'trend': trend
+                            }
+                    macro_panel = self.fred.get_fixed_macro_panel()
+                    if macro_panel:
+                        break
+                except Exception as e:
+                    logger.error(f"FRED fetch failed: {e}")
+                    macro_panel_fallback = "Macro panel unavailable due to FRED fetch error."
+
+            elif provider == "fmp":
+                if not (self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher):
+                    continue
+                try:
+                    if not econ_calendar:
+                        econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
+                    if not macro_panel:
+                        macro_panel_fallback = "Macro panel is configured with FMP fallback but fixed macro panel currently requires FRED."
+                except Exception as e:
+                    logger.error(f"FMP macro fallback failed: {e}")
+
+        if not macro_panel and not macro_panel_fallback and "fred" in self.provider_matrix.get("macro", []):
+            macro_panel_fallback = (
+                "FRED API key missing or provider disabled: macro panel uses fallback narrative. "
+                "Set FRED_API_KEY and enable 'fred' in config.yaml for live regime reads."
+            )
 
         market_news = _dedupe_news(market_news, limit=16)
         market_news = self._select_diverse_market_news(market_news, state, limit=8)
@@ -671,44 +894,44 @@ class NewsletterGenerator:
             return 'LOW'
 
         # 3. Dynamic Sector & Cap Analysis
-        sector_perf = []
+        sector_perf = section_results.get("sector_performance") or []
         cap_perf = {}
         index_perf = {}
-        if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+        if sector_perf:
             try:
-                sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
-                # Sort sectors by performance
-                if sector_perf:
-                    sector_perf = sorted(sector_perf, key=lambda x: float(x.get('changesPercentage', '0').replace('%','')), reverse=True)
+                sector_perf = sorted(
+                    sector_perf,
+                    key=lambda x: float(str(x.get('changesPercentage', '0')).replace('%', '')),
+                    reverse=True
+                )
             except Exception as e:
-                logger.error(f"Sector perf fetch failed: {e}")
+                logger.warning(f"Sector perf sort failed: {e}")
         
         # Cap Segment Analysis (SPY, MDY, IWM)
-        try:
-            for symbol, label in [('SPY', 'Large Cap'), ('MDY', 'Mid Cap'), ('IWM', 'Small Cap')]:
-                t = yf.Ticker(symbol)
-                hist = t.history(period='2d')
-                if len(hist) >= 2:
-                    change = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
-                    cap_perf[label] = round(change, 2)
-        except Exception as e:
-            logger.error(f"Cap perf check failed: {e}")
+        if "yfinance" in price_providers:
+            try:
+                for symbol, label in [('SPY', 'Large Cap'), ('MDY', 'Mid Cap'), ('IWM', 'Small Cap')]:
+                    t = yf.Ticker(symbol)
+                    hist = t.history(period='2d')
+                    if len(hist) >= 2:
+                        change = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                        cap_perf[label] = round(change, 2)
+            except Exception as e:
+                logger.error(f"Cap perf check failed: {e}")
 
         # Major index snapshot + sentiment/movers via Finnhub integration
         market_snapshot = {}
-        sentiment_proxy = {"score": 50.0, "label": "Neutral", "components": []}
-        notable_movers = []
+        sentiment_proxy = section_results.get("market_sentiment") or {"score": 50.0, "label": "Neutral", "components": []}
+        notable_movers = section_results.get("movers") or []
         if self.finnhub.api_key:
             try:
                 market_snapshot = self.finnhub.fetch_major_index_snapshot()
-                sentiment_proxy = self.finnhub.fetch_market_sentiment_proxy()
-                notable_movers = self.finnhub.fetch_notable_movers(limit=6)
                 for item in market_snapshot.values():
                     index_perf[item.get('label', item.get('symbol', 'Index'))] = item.get('change_pct', 0.0)
             except Exception as e:
                 logger.error(f"Finnhub snapshot check failed: {e}")
 
-        if not index_perf:
+        if not index_perf and "yfinance" in price_providers:
             try:
                 for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
                     hist = yf.Ticker(symbol).history(period='2d')
@@ -1184,6 +1407,17 @@ class NewsletterGenerator:
                 int(qc_report.get("section_qc_failures", 0)),
             )
 
+        diagnostics_lines = ["", "## Internal Diagnostics"]
+        for plan in section_plans:
+            status_row = section_status.get(plan.section_name, {"status": "failed", "provider": "none"})
+            diag_summary = plan.render_fn(section_results.get(plan.section_name))
+            diagnostics_lines.append(
+                f"- **{plan.section_name}**: {status_row['status']} via `{status_row['provider']}` "
+                f"(primary={plan.primary_provider}, fallback={plan.fallback_provider}, "
+                f"max_items={plan.max_items}, sla={plan.freshness_sla}, {diag_summary})"
+            )
+        final_md = final_md.rstrip() + "\n" + "\n".join(diagnostics_lines) + "\n"
+
         # Save markdown archive file
         output_path_obj = Path(output_path)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
@@ -1200,7 +1434,8 @@ class NewsletterGenerator:
             "lead_sentence": lead_sentence,
             "watchlist_intro": watchlist_intro,
             "headlines_intro": headlines_intro if market_news else "",
-            "optional_sections": optional_sections
+            "optional_sections": optional_sections,
+            "section_status": section_status
         })
         state["runs"] = state_runs[-5:]
         self._save_newsletter_state(state)

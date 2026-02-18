@@ -70,7 +70,15 @@ class LongTermFundamentalsFetcher:
             self.fmp = FMPFetcher()  # Uses FMP_API_KEY env var
         else:
             self.fmp = None
-            logger.info("FMP API key not found - will use yfinance for all fundamentals")
+            logger.info("FMP API key not found - will use fallback providers for fundamentals")
+
+        finnhub_api_key = os.getenv('FINNHUB_API_KEY')
+        if finnhub_api_key:
+            from src.data.finnhub_fetcher import FinnhubFetcher
+            self.finnhub = FinnhubFetcher()  # Uses FINNHUB_API_KEY env var
+        else:
+            self.finnhub = None
+            logger.info("Finnhub API key not found - fallback path will use yfinance")
 
         finnhub_api_key = os.getenv('FINNHUB_API_KEY')
         if finnhub_api_key:
@@ -110,21 +118,23 @@ class LongTermFundamentalsFetcher:
         logger.info(f"Fetching long-term fundamentals for {ticker}")
 
         try:
-            # Try FMP first, then Finnhub, then yfinance
+            # Try FMP first if available, then Finnhub, then yfinance
             if self.fmp is None:
-                logger.debug(f"FMP not initialized for {ticker}, trying Finnhub fallback")
-                finnhub_fundamentals = self._fetch_from_finnhub(ticker)
-                if finnhub_fundamentals:
-                    return finnhub_fundamentals
+                logger.info(f"FMP unavailable/rate-limited, trying Finnhub for {ticker}")
+                finnhub_result = self._fetch_from_finnhub(ticker)
+                if finnhub_result:
+                    return finnhub_result
+                logger.info(f"Finnhub unavailable/incomplete, falling back to yfinance for {ticker}")
                 return self._fetch_from_yfinance(ticker)
 
             fundamentals_data = self.fmp.fetch_comprehensive_fundamentals(ticker, include_advanced=False)
 
             if not fundamentals_data:
-                logger.debug(f"No FMP data for {ticker}, trying Finnhub fundamentals")
-                finnhub_fundamentals = self._fetch_from_finnhub(ticker)
-                if finnhub_fundamentals:
-                    return finnhub_fundamentals
+                logger.info(f"FMP unavailable/rate-limited, trying Finnhub for {ticker}")
+                finnhub_result = self._fetch_from_finnhub(ticker)
+                if finnhub_result:
+                    return finnhub_result
+                logger.info(f"Finnhub unavailable/incomplete, falling back to yfinance for {ticker}")
                 return self._fetch_from_yfinance(ticker)
 
             # Extract and organize data (note: keys are singular, not plural)
@@ -133,11 +143,14 @@ class LongTermFundamentalsFetcher:
             cash_flows = fundamentals_data.get("cash_flow", [])
 
             if not income_statements or not balance_sheets or not cash_flows:
-                logger.debug(f"Incomplete FMP data for {ticker}, trying Finnhub fundamentals")
-                finnhub_fundamentals = self._fetch_from_finnhub(ticker)
-                if finnhub_fundamentals:
-                    return finnhub_fundamentals
+                logger.info(f"FMP unavailable/rate-limited, trying Finnhub for {ticker}")
+                finnhub_result = self._fetch_from_finnhub(ticker)
+                if finnhub_result:
+                    return finnhub_result
+                logger.info(f"Finnhub unavailable/incomplete, falling back to yfinance for {ticker}")
                 return self._fetch_from_yfinance(ticker)
+
+            logger.info(f"Using FMP fundamentals for {ticker}")
 
             # Create fundamentals object
             fundamentals = LongTermFundamentals(
@@ -161,70 +174,92 @@ class LongTermFundamentalsFetcher:
             return fundamentals
 
         except Exception as e:
-            logger.warning(f"Error fetching from FMP for {ticker}: {e}, trying Finnhub")
-            finnhub_fundamentals = self._fetch_from_finnhub(ticker)
-            if finnhub_fundamentals:
-                return finnhub_fundamentals
+            logger.warning(f"Error fetching from FMP for {ticker}: {e}")
+            logger.info(f"FMP unavailable/rate-limited, trying Finnhub for {ticker}")
+            finnhub_result = self._fetch_from_finnhub(ticker)
+            if finnhub_result:
+                return finnhub_result
+            logger.info(f"Finnhub unavailable/incomplete, falling back to yfinance for {ticker}")
             return self._fetch_from_yfinance(ticker)
 
     def _fetch_from_finnhub(self, ticker: str) -> Optional[LongTermFundamentals]:
-        """Fetch fallback fundamentals from Finnhub basic financial metrics."""
+        """Fetch fundamentals from Finnhub and normalize for long-term metrics."""
         if self.finnhub is None:
             return None
 
         try:
-            logger.info(f"Trying Finnhub fundamentals fallback for {ticker}")
-            payload = self.finnhub.fetch_basic_financials(ticker)
-            metric = payload.get("metric", {}) if isinstance(payload, dict) else {}
-            if not metric:
+            income_statements = self.finnhub.fetch_income_statement(ticker, freq="annual", limit=8)
+            balance_sheets = self.finnhub.fetch_balance_sheet(ticker, freq="annual", limit=8)
+            cash_flows = self.finnhub.fetch_cash_flow(ticker, freq="annual", limit=8)
+            key_metrics = self.finnhub.fetch_key_metrics(ticker)
+
+            if not income_statements or not balance_sheets or not cash_flows:
                 return None
 
-            revenue = float(metric.get("salesPerShareAnnual", 0) or 0)
-            eps = float(metric.get("epsNormalizedAnnual", 0) or metric.get("epsTTM", 0) or 0)
-            roe = float(metric.get("roeTTM", 0) or 0) / 100.0
-            gross_margin = float(metric.get("grossMarginTTM", 0) or 0) / 100.0
-            net_margin = float(metric.get("netMarginTTM", 0) or 0) / 100.0
-            fcf_per_share = float(metric.get("fcfPerShareTTM", 0) or 0)
-            debt_to_equity = float(metric.get("totalDebt/totalEquityQuarterly", 0) or 0)
+            normalized_income = []
+            for stmt in income_statements:
+                normalized_income.append({
+                    "date": stmt.get("date"),
+                    "revenue": stmt.get("revenue") or 0,
+                    "netIncome": stmt.get("netIncome") or 0,
+                    "grossProfitRatio": stmt.get("grossProfitRatio") or key_metrics.get("grossMargin5Y") or 0,
+                    "interestExpense": stmt.get("interestExpense") or 0,
+                    "incomeTaxExpense": stmt.get("incomeTaxExpense") or 0,
+                    "depreciationAndAmortization": stmt.get("depreciationAndAmortization") or 0,
+                })
 
-            # Finnhub basic endpoint does not provide full statements; synthesize minimal compatible rows.
-            income_statements = [{
-                "revenue": revenue,
-                "netIncome": eps,
-                "grossProfitRatio": gross_margin,
-                "netIncomeRatio": net_margin,
-            }]
-            balance_sheets = [{
-                "totalAssets": 0,
-                "totalDebt": debt_to_equity,
-                "shortTermDebt": 0,
-                "longTermDebt": debt_to_equity,
-            }]
-            cash_flows = [{
-                "freeCashFlow": fcf_per_share,
-                "operatingCashFlow": fcf_per_share,
-            }]
+            normalized_balance = []
+            for stmt in balance_sheets:
+                short_term_debt = stmt.get("shortTermDebt") or 0
+                long_term_debt = stmt.get("longTermDebt") or 0
+                total_debt = stmt.get("totalDebt")
+                if total_debt is None:
+                    total_debt = short_term_debt + long_term_debt
+
+                normalized_balance.append({
+                    "date": stmt.get("date"),
+                    "totalAssets": stmt.get("totalAssets") or 0,
+                    "totalDebt": total_debt or 0,
+                    "shortTermDebt": short_term_debt,
+                    "longTermDebt": long_term_debt,
+                })
+
+            normalized_cash = []
+            for stmt in cash_flows:
+                operating_cf = stmt.get("operatingCashFlow") or 0
+                capex = stmt.get("capitalExpenditure") or 0
+                free_cf = stmt.get("freeCashFlow")
+                if free_cf is None:
+                    free_cf = operating_cf - abs(capex) if operating_cf else 0
+
+                normalized_cash.append({
+                    "date": stmt.get("date"),
+                    "operatingCashFlow": operating_cf,
+                    "capitalExpenditure": capex,
+                    "freeCashFlow": free_cf,
+                })
+
+            has_required_values = any(s.get("revenue", 0) > 0 for s in normalized_income) and any(
+                s.get("totalAssets", 0) > 0 for s in normalized_balance
+            ) and any(abs(s.get("freeCashFlow", 0)) > 0 for s in normalized_cash)
+            if not has_required_values:
+                return None
 
             fundamentals = LongTermFundamentals(
                 ticker=ticker,
                 currency="USD",
-                income_statements=income_statements,
-                balance_sheets=balance_sheets,
-                cash_flows=cash_flows,
+                income_statements=normalized_income,
+                balance_sheets=normalized_balance,
+                cash_flows=normalized_cash,
                 fetched_at=datetime.utcnow().isoformat(),
-                roic_3yr=roe,
-                roic_5yr=roe,
-                revenue_cagr_3yr=0.0,
-                revenue_cagr_5yr=0.0,
             )
 
             self._calculate_metrics(fundamentals)
             self._save_to_cache(fundamentals)
-            logger.info(f"✓ Fetched {ticker} from Finnhub fallback")
+            logger.info(f"✓ Fetched {ticker} from Finnhub: quality={fundamentals.data_quality_score:.0f}%")
             return fundamentals
-
         except Exception as e:
-            logger.warning(f"Finnhub fallback failed for {ticker}: {e}")
+            logger.warning(f"Error fetching from Finnhub for {ticker}: {e}")
             return None
 
     def _fetch_from_yfinance(self, ticker: str) -> Optional[LongTermFundamentals]:

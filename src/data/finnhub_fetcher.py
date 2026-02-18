@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 import pickle
 
@@ -352,6 +352,112 @@ class FinnhubFetcher:
         except Exception as e:
             logger.error(f"Error fetching Finnhub metrics for {ticker}: {e}")
             return {}
+
+    def fetch_financial_reports(self, ticker: str, freq: str = "annual") -> List[Dict[str, Any]]:
+        """Fetch GAAP financial reports from Finnhub (income/balance/cash sections)."""
+        if not self.api_key:
+            return []
+
+        payload = self._safe_get(
+            "stock/financials-reported",
+            {"symbol": ticker, "freq": freq},
+        )
+        return payload.get("data", []) if isinstance(payload, dict) else []
+
+    def _extract_concept_value(self, concepts: List[Dict[str, Any]], candidates: List[str]) -> Optional[float]:
+        """Find first concept value matching candidate keys."""
+        if not concepts:
+            return None
+
+        normalized_candidates = {c.lower() for c in candidates}
+        for item in concepts:
+            concept = str(item.get("concept", "")).lower()
+            if concept in normalized_candidates or concept.split("_")[-1] in normalized_candidates:
+                value = item.get("value")
+                try:
+                    return float(value) if value is not None else None
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    def fetch_income_statement(self, ticker: str, freq: str = "annual", limit: int = 8) -> List[Dict[str, Any]]:
+        """Fetch and normalize Finnhub income statement fields expected by downstream code."""
+        reports = self.fetch_financial_reports(ticker, freq=freq)
+        normalized: List[Dict[str, Any]] = []
+
+        for report in reports[:limit]:
+            ic = report.get("report", {}).get("ic", [])
+            normalized.append(
+                {
+                    "date": report.get("endDate"),
+                    "revenue": self._extract_concept_value(ic, ["revenues", "salesrevenuegoodsnet"]),
+                    "netIncome": self._extract_concept_value(ic, ["netincomeloss", "profitloss"]),
+                    "grossProfitRatio": self._extract_concept_value(ic, ["grossprofitratio", "grossprofit"]),
+                    "interestExpense": self._extract_concept_value(ic, ["interestexpense"]),
+                    "incomeTaxExpense": self._extract_concept_value(ic, ["incometaxexpensebenefit"]),
+                    "depreciationAndAmortization": self._extract_concept_value(
+                        ic, ["depreciationdepletionandamortization", "depreciationamortizationandaccretionnet"]
+                    ),
+                }
+            )
+
+        return normalized
+
+    def fetch_balance_sheet(self, ticker: str, freq: str = "annual", limit: int = 8) -> List[Dict[str, Any]]:
+        """Fetch and normalize Finnhub balance sheet fields expected by downstream code."""
+        reports = self.fetch_financial_reports(ticker, freq=freq)
+        normalized: List[Dict[str, Any]] = []
+
+        for report in reports[:limit]:
+            bs = report.get("report", {}).get("bs", [])
+            normalized.append(
+                {
+                    "date": report.get("endDate"),
+                    "totalAssets": self._extract_concept_value(bs, ["assets"]),
+                    "totalDebt": self._extract_concept_value(
+                        bs,
+                        [
+                            "debtandfinanceleaseobligations",
+                            "longtermdebtandcapitalleaseobligations",
+                            "longtermdebt",
+                        ],
+                    ),
+                    "shortTermDebt": self._extract_concept_value(bs, ["shorttermborrowings", "commercialpaper"]),
+                    "longTermDebt": self._extract_concept_value(
+                        bs,
+                        ["longtermdebtnoncurrent", "longtermdebtandcapitalleaseobligations"],
+                    ),
+                }
+            )
+
+        return normalized
+
+    def fetch_cash_flow(self, ticker: str, freq: str = "annual", limit: int = 8) -> List[Dict[str, Any]]:
+        """Fetch and normalize Finnhub cash flow fields expected by downstream code."""
+        reports = self.fetch_financial_reports(ticker, freq=freq)
+        normalized: List[Dict[str, Any]] = []
+
+        for report in reports[:limit]:
+            cf = report.get("report", {}).get("cf", [])
+            normalized.append(
+                {
+                    "date": report.get("endDate"),
+                    "operatingCashFlow": self._extract_concept_value(
+                        cf, ["netcashprovidedbyusedinoperatingactivities", "netcashprovidedbyusedinoperatingactivitiescontinuingoperations"]
+                    ),
+                    "capitalExpenditure": self._extract_concept_value(
+                        cf, ["paymentstoacquirepropertyplantandequipment", "capitalexpenditure"]
+                    ),
+                    "freeCashFlow": self._extract_concept_value(cf, ["freecashflow"]),
+                }
+            )
+
+        return normalized
+
+    def fetch_key_metrics(self, ticker: str) -> Dict[str, Any]:
+        """Expose Finnhub basic metrics in a compact dict for adapter parity."""
+        payload = self.fetch_basic_financials(ticker)
+        return payload.get("metric", {}) if isinstance(payload, dict) else {}
 
     def fetch_earnings_calendar(self, days_forward: int = 7) -> List[Dict]:
         """Fetch coming earnings releases from Finnhub."""

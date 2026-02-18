@@ -822,8 +822,11 @@ class QuarterlyCompounderScan:
                         q = (quarter_date.month - 1) // 3 + 1
                         year = quarter_date.year
                         subject = f"🏛️ AlphaIntelligence Capital — Quarterly Compounder Report | Q{q} {year}"
-                        notifier.send_newsletter(newsletter_path, scan_report_path=csv_path, subject=subject)
-                        logger.info("✓ Newsletter sent via email")
+                        sent = notifier.send_newsletter(newsletter_path, scan_report_path=csv_path, subject=subject)
+                        if sent:
+                            logger.info("✓ Newsletter sent via email")
+                        else:
+                            logger.error("❌ Newsletter email send failed")
                     else:
                         logger.warning("⚠ Email not configured - skipping send")
             except Exception as e:

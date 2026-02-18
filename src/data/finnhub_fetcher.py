@@ -42,6 +42,23 @@ class FinnhubFetcher:
         
         self.session = requests.Session()
 
+    def _safe_get(self, endpoint: str, params: Dict, timeout: int = 10) -> Dict:
+        """Perform a Finnhub GET and return parsed JSON dict/list wrapper."""
+        if not self.api_key:
+            return {}
+        try:
+            query = {**params, "token": self.api_key}
+            response = self.session.get(f"{self.base_url}/{endpoint}", params=query, timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict):
+                return payload
+            if isinstance(payload, list):
+                return {"items": payload}
+        except Exception as exc:
+            logger.error(f"Finnhub request failed for {endpoint}: {exc}")
+        return {}
+
     def _fetch_quote(self, symbol: str) -> Dict:
         """Fetch quote for a symbol from Finnhub."""
         if not self.api_key:
@@ -242,6 +259,44 @@ class FinnhubFetcher:
             logger.error(f"Error fetching Finnhub market news: {e}")
             return []
 
+    def fetch_top_market_news(self, limit: int = 10, category: str = "general") -> List[Dict]:
+        """Fetch and normalize top market headlines ranked by recency and content quality."""
+        news = self.fetch_market_news(category=category)
+        if not news:
+            return []
+
+        def score(item: Dict) -> float:
+            now_ts = datetime.now().timestamp()
+            ts = float(item.get("datetime") or 0)
+            age_hours = max(0.0, (now_ts - ts) / 3600.0) if ts else 72.0
+            recency_score = max(0.0, 120.0 - min(age_hours, 120.0))
+            headline = (item.get("headline") or "").strip()
+            summary = (item.get("summary") or "").strip()
+            quality_bonus = min(30.0, len(headline) * 0.35) + min(20.0, len(summary) * 0.04)
+            return recency_score + quality_bonus
+
+        ranked = sorted(news, key=score, reverse=True)
+        normalized = []
+        for item in ranked:
+            url = (item.get("url") or "").strip()
+            title = (item.get("headline") or "").strip()
+            if not url or not title:
+                continue
+            normalized.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "site": (item.get("source") or "Finnhub").strip(),
+                    "summary": (item.get("summary") or "").strip(),
+                    "datetime": item.get("datetime"),
+                    "category": item.get("category"),
+                    "relevance_score": round(score(item), 2),
+                }
+            )
+            if len(normalized) >= limit:
+                break
+        return normalized
+
     def fetch_company_news(self, ticker: str, days_back: int = 7) -> List[Dict]:
         """Fetch news for a specific company."""
         cache_key = f"company_news_{ticker}"
@@ -331,6 +386,123 @@ class FinnhubFetcher:
         except Exception as e:
             logger.error(f"Error fetching Finnhub earnings calendar: {e}")
             return []
+
+    def fetch_earnings_calendar_standardized(self, days_forward: int = 7, limit: int = 20) -> List[Dict]:
+        """Fetch, normalize, and deterministically sort upcoming earnings events."""
+        earnings = self.fetch_earnings_calendar(days_forward=days_forward)
+        if not earnings:
+            return []
+
+        def hour_rank(event_hour: str) -> int:
+            hour = (event_hour or "").lower()
+            if "bmo" in hour:
+                return 0
+            if "amc" in hour:
+                return 2
+            return 1
+
+        normalized = []
+        for event in earnings:
+            symbol = (event.get("symbol") or "").strip()
+            date = (event.get("date") or "").strip()
+            if not symbol or not date:
+                continue
+            normalized.append(
+                {
+                    "symbol": symbol,
+                    "date": date,
+                    "hour": (event.get("hour") or "").strip(),
+                    "epsEstimate": event.get("epsEstimate"),
+                    "revenueEstimate": event.get("revenueEstimate"),
+                }
+            )
+
+        ranked = sorted(normalized, key=lambda e: (e.get("date", "9999-99-99"), hour_rank(e.get("hour", "")), e.get("symbol", "")))
+        return ranked[:limit]
+
+    def fetch_ipo_calendar(self, days_forward: int = 14, limit: int = 20) -> List[Dict]:
+        """Fetch IPO/market calendar if available for the API plan."""
+        cache_key = f"ipo_cal_{days_forward}_{limit}"
+        cache_path = self._get_cache_path(cache_key)
+        if self._is_cache_valid(cache_path, hours=12):
+            with open(cache_path, "rb") as f:
+                return pickle.load(f)
+
+        if not self.api_key:
+            return []
+
+        start_date = datetime.now().strftime("%Y-%m-%d")
+        end_date = (datetime.now() + timedelta(days=days_forward)).strftime("%Y-%m-%d")
+        payload = self._safe_get("calendar/ipo", {"from": start_date, "to": end_date})
+        events = payload.get("ipoCalendar", []) if isinstance(payload, dict) else []
+        if not events:
+            return []
+
+        normalized = []
+        for event in events:
+            symbol = (event.get("symbol") or event.get("name") or "").strip()
+            date = (event.get("date") or "").strip()
+            if not symbol or not date:
+                continue
+            normalized.append(
+                {
+                    "symbol": symbol,
+                    "date": date,
+                    "exchange": event.get("exchange", ""),
+                    "price": event.get("price", ""),
+                    "shares": event.get("numberOfShares", ""),
+                }
+            )
+
+        normalized = sorted(normalized, key=lambda x: (x.get("date", "9999-99-99"), x.get("symbol", "")))[:limit]
+        if normalized:
+            with open(cache_path, "wb") as f:
+                pickle.dump(normalized, f)
+        return normalized
+
+    def fetch_ticker_sentiment_snapshot(self, ticker: str) -> Dict:
+        """Fetch ticker-level sentiment snapshot from Finnhub news sentiment endpoint."""
+        symbol = (ticker or "").upper().strip()
+        if not symbol:
+            return {}
+
+        cache_key = f"sentiment_{symbol}"
+        cache_path = self._get_cache_path(cache_key)
+        if self._is_cache_valid(cache_path, hours=2):
+            with open(cache_path, "rb") as f:
+                return pickle.load(f)
+
+        payload = self._safe_get("news-sentiment", {"symbol": symbol})
+        if not payload:
+            return {}
+
+        sentiment = {
+            "ticker": symbol,
+            "buzz": float(payload.get("buzz", {}).get("buzz", 0.0) or 0.0),
+            "weekly_average_buzz": float(payload.get("buzz", {}).get("weeklyAverage", 0.0) or 0.0),
+            "bullish_pct": float(payload.get("sentiment", {}).get("bullishPercent", 0.0) or 0.0),
+            "bearish_pct": float(payload.get("sentiment", {}).get("bearishPercent", 0.0) or 0.0),
+            "sector_average_bullish_pct": float(payload.get("sectorAverageBullishPercent", 0.0) or 0.0),
+            "company_news_score": float(payload.get("companyNewsScore", 0.0) or 0.0),
+        }
+        with open(cache_path, "wb") as f:
+            pickle.dump(sentiment, f)
+        return sentiment
+
+    def fetch_top_ticker_sentiment_snapshots(
+        self,
+        top_buy_tickers: Optional[List[str]] = None,
+        top_sell_tickers: Optional[List[str]] = None,
+        per_side: int = 3,
+    ) -> Dict[str, List[Dict]]:
+        """Fetch sentiment snapshots for top buy/sell baskets."""
+        result = {"top_buys": [], "top_sells": []}
+        for key, tickers in (("top_buys", top_buy_tickers or []), ("top_sells", top_sell_tickers or [])):
+            for ticker in tickers[:per_side]:
+                snapshot = self.fetch_ticker_sentiment_snapshot(ticker)
+                if snapshot:
+                    result[key].append(snapshot)
+        return result
 
     def fetch_economic_calendar(self) -> List[Dict]:
         """Fetch economic events from Finnhub (Premium Endpoint)."""

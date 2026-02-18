@@ -75,3 +75,11 @@ output:
   # Save results to file
   save_to_file: true
   output_dir: "./data/results"
+
+# Newsletter Data Source Priority Matrix
+newsletter:
+  providers:
+    macro: [fred, fmp]
+    headlines: [finnhub, marketaux, fmp]
+    sector_performance: [fmp, finnhub]
+    prices: [yfinance]

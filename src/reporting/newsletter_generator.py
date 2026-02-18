@@ -1,27 +1,56 @@
 
 import logging
 import json
+import os
 import re
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 from html import escape
+from urllib.parse import urlparse
 
 import yfinance as yf
+import yaml
 
 from ..data.enhanced_fundamentals import EnhancedFundamentalsFetcher
 from ..data.finnhub_fetcher import FinnhubFetcher
 from ..data.marketaux_fetcher import MarketauxFetcher
 from ..data.fred_fetcher import FredFetcher
+from ..data.price_service import PriceService
 from ..ai.ai_agent import AIAgent
 from .visualizer import ChartArtifact, MarketVisualizer
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class SectionQCReport:
+    section_title: str
+    minimum_item_count: int
+    minimum_source_diversity: int
+    max_duplicate_topic_ratio: float
+    freshness_threshold: float
+    item_count: int
+    source_diversity: int
+    duplicate_topic_ratio: float
+    freshness_ratio: float
+    provider_attribution: Dict[str, int]
+    passed: bool
+    errors: List[str]
+
 class NewsletterGenerator:
     """Generates a high-quality, professional daily market newsletter."""
 
-    def __init__(self, portfolio_path: str = "./data/positions.json"):
+    DEFAULT_PROVIDER_MATRIX = {
+        "macro": ["fred", "fmp"],
+        "headlines": ["finnhub", "marketaux", "fmp"],
+        "sector_performance": ["fmp", "finnhub"],
+        "prices": ["yfinance"],
+    }
+    SUPPORTED_PROVIDERS = {"fred", "fmp", "finnhub", "marketaux", "yfinance"}
+
+    def __init__(self, portfolio_path: str = "./data/positions.json", config_path: str = "config.yaml"):
         try:
             self.fetcher = EnhancedFundamentalsFetcher()
         except Exception as e:
@@ -32,8 +61,108 @@ class NewsletterGenerator:
         self.fred = FredFetcher()
         self.ai_agent = AIAgent()
         self.visualizer = MarketVisualizer()
+        self.price_service = PriceService()
         self.portfolio_path = Path(portfolio_path)
+        self.config_path = Path(config_path)
         self.newsletter_state_path = Path("./data/cache/newsletter_state.json")
+        self.newsletter_config = self._load_newsletter_config()
+        self.provider_matrix = self._build_provider_matrix(self.newsletter_config)
+        self.provider_status = self._build_provider_status()
+        self._log_provider_diagnostics()
+
+    def _load_newsletter_config(self) -> Dict:
+        if not self.config_path.exists():
+            logger.warning(
+                "Config path %s not found. Newsletter provider matrix will use defaults.",
+                self.config_path,
+            )
+            return {}
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception as exc:
+            logger.error("Failed to parse %s: %s", self.config_path, exc)
+            return {}
+
+    def _build_provider_matrix(self, config: Dict) -> Dict[str, List[str]]:
+        configured = ((config or {}).get("newsletter") or {}).get("providers") or {}
+        matrix: Dict[str, List[str]] = {}
+        for section, defaults in self.DEFAULT_PROVIDER_MATRIX.items():
+            raw = configured.get(section, defaults)
+            if not isinstance(raw, list):
+                logger.warning("newsletter.providers.%s must be a list. Falling back to defaults.", section)
+                raw = defaults
+
+            normalized = []
+            for provider in raw:
+                name = str(provider).strip().lower()
+                if not name:
+                    continue
+                if name not in self.SUPPORTED_PROVIDERS:
+                    logger.warning("Unsupported provider '%s' in newsletter.providers.%s; skipping.", name, section)
+                    continue
+                normalized.append(name)
+
+            if not normalized:
+                logger.warning("No valid providers configured for section '%s'; using defaults %s.", section, defaults)
+                normalized = defaults.copy()
+            matrix[section] = normalized
+        return matrix
+
+    def _build_provider_status(self) -> Dict[str, Dict]:
+        fmp_key = None
+        if self.fetcher and self.fetcher.fmp_fetcher:
+            fmp_key = self.fetcher.fmp_fetcher.api_key
+        elif self.fetcher and self.fetcher.fmp_available:
+            fmp_key = os.getenv("FMP_API_KEY")
+
+        status = {
+            "finnhub": {"active": bool(self.finnhub.api_key), "missing_key": not bool(self.finnhub.api_key), "key_env": "FINNHUB_API_KEY"},
+            "marketaux": {"active": bool(self.marketaux.api_key), "missing_key": not bool(self.marketaux.api_key), "key_env": "MARKETAUX_API_KEY"},
+            "fred": {"active": bool(self.fred.api_key), "missing_key": not bool(self.fred.api_key), "key_env": "FRED_API_KEY"},
+            "fmp": {"active": bool(fmp_key), "missing_key": not bool(fmp_key), "key_env": "FMP_API_KEY"},
+            "yfinance": {"active": True, "missing_key": False, "key_env": None},
+        }
+        return status
+
+    def _get_runtime_providers(self, section: str) -> List[str]:
+        providers = self.provider_matrix.get(section, [])
+        return [p for p in providers if self.provider_status.get(p, {}).get("active", False)]
+
+    def _log_provider_diagnostics(self) -> None:
+        logger.info("Newsletter provider diagnostics at startup:")
+        for section in self.DEFAULT_PROVIDER_MATRIX:
+            configured = self.provider_matrix.get(section, [])
+            active = [p for p in configured if self.provider_status.get(p, {}).get("active", False)]
+            logger.info(" - %s fallback order: %s", section, " -> ".join(configured) if configured else "(none)")
+            logger.info(" - %s active providers: %s", section, ", ".join(active) if active else "(none)")
+
+        missing = []
+        for name, details in self.provider_status.items():
+            if details.get("missing_key"):
+                missing.append(f"{name} ({details.get('key_env')})")
+        if missing:
+            logger.warning("Newsletter providers with missing API keys: %s", ", ".join(missing))
+        else:
+            logger.info("Newsletter providers with API keys are fully configured.")
+
+
+    def _authoritative_idea_price(self, idea: Dict) -> float:
+        """Resolve idea price from yfinance and reject blocked price sources."""
+        ticker = idea.get('ticker', '')
+        if not ticker:
+            return 0.0
+
+        is_valid, source = self.price_service.validate_price_payload_source(
+            idea,
+            context=f"newsletter idea {ticker}",
+        )
+        if not is_valid:
+            logger.error("Rejecting newsletter idea payload for %s due to blocked price source=%s", ticker, source)
+            return 0.0
+
+        price = self.price_service.get_current_price(ticker)
+        return float(price) if price and price > 0 else 0.0
 
     def _load_newsletter_state(self) -> Dict:
         if not self.newsletter_state_path.exists():
@@ -207,6 +336,89 @@ class NewsletterGenerator:
             tokens = words
         return " ".join(tokens[:6])
 
+    def _source_domain(self, url: str, site: str = "") -> str:
+        parsed = urlparse((url or "").strip())
+        domain = (parsed.netloc or "").lower().replace("www.", "")
+        if domain:
+            return domain
+        return (site or "unknown").strip().lower()
+
+    def _rank_and_dedupe_news(
+        self,
+        items: List[Dict],
+        limit: int = 8,
+        max_source_ratio: float = 0.4,
+    ) -> List[Dict]:
+        """Deterministically rank and dedupe headlines by relevance+recency."""
+        now_ts = datetime.now().timestamp()
+        normalized: List[Dict] = []
+        seen_urls = set()
+        seen_topic_keys = set()
+        seen_domain_topic = set()
+
+        for item in items:
+            title = (item.get("title") or "").strip()
+            url = (item.get("url") or "").strip()
+            if not title or not url:
+                continue
+            domain = self._source_domain(url, item.get("site", ""))
+            topic_key = self._normalize_topic(title)
+            if url in seen_urls or topic_key in seen_topic_keys or (domain, topic_key) in seen_domain_topic:
+                continue
+
+            raw_ts = item.get("datetime")
+            try:
+                ts = float(raw_ts or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            age_hours = max(0.0, (now_ts - ts) / 3600.0) if ts else 72.0
+            recency = max(0.0, 120.0 - min(120.0, age_hours))
+            relevance = min(40.0, len(title) * 0.45) + min(20.0, len((item.get("summary") or "")) * 0.04)
+            score = recency + relevance
+
+            normalized.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "site": (item.get("site") or "News").strip(),
+                    "summary": (item.get("summary") or "").strip(),
+                    "datetime": item.get("datetime"),
+                    "domain": domain,
+                    "topic_key": topic_key,
+                    "score": round(score, 2),
+                }
+            )
+            seen_urls.add(url)
+            seen_topic_keys.add(topic_key)
+            seen_domain_topic.add((domain, topic_key))
+
+        ranked = sorted(normalized, key=lambda x: (-x.get("score", 0.0), x.get("title", ""), x.get("url", "")))
+        if not ranked:
+            return []
+
+        source_counts: Dict[str, int] = {}
+        selected: List[Dict] = []
+        for item in ranked:
+            source = item.get("domain") or item.get("site", "news").lower()
+            projected_total = len(selected) + 1
+            projected_count = source_counts.get(source, 0) + 1
+            if projected_total >= 3 and (projected_count / projected_total) > max_source_ratio:
+                continue
+            source_counts[source] = projected_count
+            selected.append(item)
+            if len(selected) >= limit:
+                break
+
+        if len(selected) < min(limit, len(ranked)):
+            existing_urls = {x.get("url") for x in selected}
+            for item in ranked:
+                if item.get("url") in existing_urls:
+                    continue
+                selected.append(item)
+                if len(selected) >= limit:
+                    break
+        return selected
+
     def _build_qc_fallback_template(self, date_str: str) -> str:
         """Return a safe fallback newsletter that satisfies required sections."""
         lines = [
@@ -370,13 +582,146 @@ class NewsletterGenerator:
         if topic_total >= 2 and duplicate_ratio > max_duplicate_ratio:
             errors.append("duplicate_topic_ratio")
 
+        section_reports = self._run_section_qc_suite(markdown)
+        providers = self._extract_provider_attribution(markdown)
         report = {
             "heading_count": float(len(headings)),
             "duplicate_header_count": float(len(dupes)),
             "source_count": float(unique_sources),
             "duplicate_topic_ratio": round(duplicate_ratio, 3),
+            "provider_attribution": providers,
+            "section_qc": [asdict(r) for r in section_reports],
+            "section_qc_failures": float(sum(1 for r in section_reports if not r.passed)),
         }
         return len(errors) == 0, report, errors
+
+    def _build_section_qc_fallback(self, section_title: str, report: SectionQCReport) -> List[str]:
+        provider_bits = ", ".join(
+            f"{name}: {count}" for name, count in sorted(report.provider_attribution.items(), key=lambda x: (-x[1], x[0]))
+        ) or "No provider attribution available"
+        return [
+            f"## {section_title}",
+            (
+                "- Section quality checks flagged this section for low confidence "
+                f"({', '.join(report.errors) if report.errors else 'unknown_qc_issue'})."
+            ),
+            (
+                f"- QC snapshot: items={report.item_count}/{report.minimum_item_count}, "
+                f"source_diversity={report.source_diversity}/{report.minimum_source_diversity}, "
+                f"duplicate_topic_ratio={report.duplicate_topic_ratio:.2f}/{report.max_duplicate_topic_ratio:.2f}, "
+                f"freshness_ratio={report.freshness_ratio:.2f}/{report.freshness_threshold:.2f}."
+            ),
+            f"- Provider attribution: {provider_bits}.",
+            "- Action: defer to other sections while this feed is revalidated.",
+            "",
+        ]
+
+    def _extract_provider_attribution(self, section_markdown: str) -> Dict[str, int]:
+        providers: Dict[str, int] = {}
+        for provider in re.findall(r"—\s*\*([^*]+)\*", section_markdown):
+            key = provider.strip()
+            if not key:
+                continue
+            providers[key] = providers.get(key, 0) + 1
+        return providers
+
+    def _parse_sections(self, markdown: str) -> List[Tuple[str, str]]:
+        matches = list(re.finditer(r"^##\s+(.+)$", markdown, flags=re.MULTILINE))
+        sections: List[Tuple[str, str]] = []
+        for idx, match in enumerate(matches):
+            title = match.group(1).strip()
+            start = match.start()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(markdown)
+            body = markdown[start:end].rstrip() + "\n"
+            sections.append((title, body))
+        return sections
+
+    def _resolve_section_qc_thresholds(self, section_title: str) -> Tuple[int, int, float, float]:
+        normalized = section_title.lower()
+        if "top headlines" in normalized:
+            return 3, 2, 0.45, 0.5
+        if "portfolio-specific news" in normalized or "earnings radar" in normalized:
+            return 2, 1, 0.6, 0.3
+        if "today's events" in normalized or "new since yesterday" in normalized:
+            return 1, 1, 0.75, 0.2
+        return 1, 1, 0.75, 0.2
+
+    def _run_section_qc(self, section_title: str, section_markdown: str) -> SectionQCReport:
+        minimum_item_count, minimum_source_diversity, max_duplicate_topic_ratio, freshness_threshold = (
+            self._resolve_section_qc_thresholds(section_title)
+        )
+        item_titles = re.findall(r"^-\s+\[([^\]]+)\]", section_markdown, flags=re.MULTILINE)
+        if not item_titles:
+            item_titles = re.findall(r"^-\s+\*\*([^:*\n]+)", section_markdown, flags=re.MULTILINE)
+        item_count = len(item_titles)
+        provider_attribution = self._extract_provider_attribution(section_markdown)
+        source_diversity = len(provider_attribution)
+
+        topics = [self._normalize_topic(t) for t in item_titles if t.strip()]
+        topic_total = len(topics)
+        topic_unique = len(set(topics)) if topics else 0
+        duplicate_topic_ratio = 0.0
+        if topic_total:
+            duplicate_topic_ratio = max(0.0, (topic_total - topic_unique) / topic_total)
+        freshness_ratio = 0.0
+        if topic_total:
+            freshness_ratio = topic_unique / topic_total
+
+        errors: List[str] = []
+        if item_count < minimum_item_count:
+            errors.append("minimum_item_count")
+        if source_diversity < minimum_source_diversity:
+            errors.append("minimum_source_diversity")
+        if topic_total >= 2 and duplicate_topic_ratio > max_duplicate_topic_ratio:
+            errors.append("max_duplicate_topic_ratio")
+        if topic_total >= 1 and freshness_ratio < freshness_threshold:
+            errors.append("freshness_threshold")
+
+        return SectionQCReport(
+            section_title=section_title,
+            minimum_item_count=minimum_item_count,
+            minimum_source_diversity=minimum_source_diversity,
+            max_duplicate_topic_ratio=max_duplicate_topic_ratio,
+            freshness_threshold=freshness_threshold,
+            item_count=item_count,
+            source_diversity=source_diversity,
+            duplicate_topic_ratio=round(duplicate_topic_ratio, 3),
+            freshness_ratio=round(freshness_ratio, 3),
+            provider_attribution=provider_attribution,
+            passed=len(errors) == 0,
+            errors=errors,
+        )
+
+    def _run_section_qc_suite(self, markdown: str) -> List[SectionQCReport]:
+        section_reports: List[SectionQCReport] = []
+        for section_title, section_markdown in self._parse_sections(markdown):
+            section_reports.append(self._run_section_qc(section_title, section_markdown))
+        return section_reports
+
+    def _apply_section_qc_fallbacks(self, markdown: str) -> Tuple[str, List[SectionQCReport]]:
+        sections = self._parse_sections(markdown)
+        reports: List[SectionQCReport] = []
+        rebuilt_chunks: List[str] = []
+        for section_title, section_md in sections:
+            report = self._run_section_qc(section_title, section_md)
+            reports.append(report)
+            if report.passed:
+                rebuilt_chunks.append(section_md.rstrip())
+            else:
+                logger.warning(
+                    "Section QC failed for '%s' (%s): items=%s, source_diversity=%s, duplicate_topic_ratio=%.3f, freshness_ratio=%.3f",
+                    section_title,
+                    ",".join(report.errors),
+                    report.item_count,
+                    report.source_diversity,
+                    report.duplicate_topic_ratio,
+                    report.freshness_ratio,
+                )
+                rebuilt_chunks.append("\n".join(self._build_section_qc_fallback(section_title, report)).rstrip())
+        prefix = re.split(r"^##\s+.+$", markdown, maxsplit=1, flags=re.MULTILINE)[0].rstrip()
+        body = "\n\n".join(chunk for chunk in rebuilt_chunks if chunk.strip())
+        assembled = "\n\n".join(x for x in [prefix, body] if x).rstrip() + "\n"
+        return assembled, reports
 
     def generate_newsletter(self, 
                           market_status: Dict = None, 
@@ -403,50 +748,31 @@ class NewsletterGenerator:
         econ_calendar = []
         trending_entities = []
         earnings_cal = []
-
-        def _clean_news_item(item: Dict) -> Optional[Dict]:
-            title = (item.get('title') or '').strip()
-            url = (item.get('url') or '').strip()
-            if not title or not url:
-                return None
-            return {
-                'title': title,
-                'url': url,
-                'site': (item.get('site') or 'News').strip(),
-                'summary': (item.get('summary') or '').strip()
-            }
-
-        def _dedupe_news(items: List[Dict], limit: int = 10) -> List[Dict]:
-            seen = set()
-            output = []
-            for raw in items:
-                cleaned = _clean_news_item(raw)
-                if not cleaned:
-                    continue
-                key = (cleaned['title'].lower(), cleaned['url'])
-                if key in seen:
-                    continue
-                seen.add(key)
-                output.append(cleaned)
-                if len(output) >= limit:
-                    break
-            return output
+        ipo_calendar = []
+        sentiment_snaps = {"top_buys": [], "top_sells": []}
         
-        # 2. Try Finnhub & Marketaux NEWS first (Higher quality)
-        if self.finnhub.api_key:
+        # 2. Section registry: primary + fallback provider execution per section
+        fmp_fetcher = self.fetcher.fmp_fetcher if (self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher) else None
+        section_status: Dict[str, Dict[str, str]] = {}
+
+        def _has_data(data: Any) -> bool:
+            return data not in (None, {}, [])
+
+        def _execute_section_plan(plan: SectionDataPlan) -> Any:
             try:
                 logger.info("Fetching Finnhub market news & calendars...")
-                finnhub_news = self.finnhub.fetch_market_news(category='general')
-                for item in finnhub_news[:6]:
-                    market_news.append({
-                        'title': item.get('headline'),
-                        'url': item.get('url'),
-                        'site': item.get('source', 'Finnhub'),
-                        'summary': item.get('summary', '')
-                    })
-                
-                earnings_cal = self.finnhub.fetch_earnings_calendar(days_forward=5)
+                market_news.extend(self.finnhub.fetch_top_market_news(limit=10, category='general'))
+                earnings_cal = self.finnhub.fetch_earnings_calendar_standardized(days_forward=5, limit=20)
                 econ_calendar = self.finnhub.fetch_economic_calendar() # Might return [] if not premium
+                ipo_calendar = self.finnhub.fetch_ipo_calendar(days_forward=10, limit=10)
+
+                buy_tickers = [x.get('ticker', '') for x in (top_buys or []) if x.get('ticker')]
+                sell_tickers = [x.get('ticker', '') for x in (top_sells or []) if x.get('ticker')]
+                sentiment_snaps = self.finnhub.fetch_top_ticker_sentiment_snapshots(
+                    top_buy_tickers=buy_tickers,
+                    top_sell_tickers=sell_tickers,
+                    per_side=3,
+                )
                 
                 if portfolio_tickers:
                     for t in portfolio_tickers[:3]:
@@ -459,10 +785,8 @@ class NewsletterGenerator:
                                 'summary': item.get('summary', '')
                             })
             except Exception as e:
-                logger.error(f"Finnhub news fetch failed: {e}")
+                logger.error(f"Section {plan.section_name} primary provider {plan.primary_provider} failed: {e}")
 
-        # Try Marketaux for additional context & trending
-        if self.marketaux.api_key:
             try:
                 logger.info("Fetching Marketaux trending entities...")
                 trending_entities = self.marketaux.fetch_trending_entities()
@@ -475,10 +799,11 @@ class NewsletterGenerator:
                             'title': item.get('title'),
                             'url': item.get('url'),
                             'site': item.get('source', 'Marketaux'),
-                            'summary': item.get('snippet', '')
+                            'summary': item.get('snippet', ''),
+                            'datetime': item.get('published_at_ts') or item.get('published_at')
                         })
             except Exception as e:
-                logger.error(f"Marketaux fetch failed: {e}")
+                logger.error(f"Section {plan.section_name} fallback provider {plan.fallback_provider} failed: {e}")
 
         # Canonical FRED macro bundle for macro/rates/risk sections
         macro_bundle = {}
@@ -501,33 +826,88 @@ class NewsletterGenerator:
             }
             macro_render = self._build_macro_section_payload(macro_bundle)
 
-        # Fallback/Supplemental Data from FMP
-        if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+        def _fetch_fundamentals_snippets(provider: str) -> List[Dict]:
+            snippets: List[Dict] = []
+            if provider == "fmp" and self.fetcher:
+                for ticker in portfolio_tickers[:3]:
+                    if self.fetcher.fetch_all_metrics(ticker):
+                        snippets.append({"symbol": ticker, "summary": "FMP fundamentals retrieved"})
+            elif provider == "finnhub" and self.finnhub.api_key:
+                for ticker in portfolio_tickers[:3]:
+                    if self.finnhub.fetch_basic_financials(ticker):
+                        snippets.append({"symbol": ticker, "summary": "Finnhub basic financials retrieved"})
+            return snippets
+
+        section_plans: List[SectionDataPlan] = [
+            SectionDataPlan("macro", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 6, "24h"),
+            SectionDataPlan("rates", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 4, "24h"),
+            SectionDataPlan("economic_calendar", "fred", "fmp", _fetch_economic_calendar, _diag_renderer, 8, "4h"),
+            SectionDataPlan("market_headlines", "finnhub", "fmp", _fetch_market_headlines, _diag_renderer, 8, "1h"),
+            SectionDataPlan("market_sentiment", "finnhub", "fmp", _fetch_market_sentiment, _diag_renderer, 1, "15m"),
+            SectionDataPlan("earnings_calendar", "finnhub", "fmp", _fetch_earnings_calendar, _diag_renderer, 8, "12h"),
+            SectionDataPlan("sector_performance", "fmp", "finnhub", _fetch_sector_performance, _diag_renderer, 11, "1h"),
+            SectionDataPlan("movers", "fmp", "finnhub", _fetch_movers, _diag_renderer, 6, "15m"),
+            SectionDataPlan("fundamentals_snippets", "fmp", "finnhub", _fetch_fundamentals_snippets, _diag_renderer, 3, "24h"),
+        ]
+
+        section_results: Dict[str, Any] = {}
+        for plan in section_plans:
+            section_results[plan.section_name] = _execute_section_plan(plan)
+
+        macro_payload = section_results.get("macro") or {}
+        econ_data = macro_payload.get("econ_data", {})
+        macro_panel = macro_payload.get("macro_panel", {})
+        macro_panel_fallback = macro_payload.get("macro_panel_fallback", "")
+        market_news = section_results.get("market_headlines") or []
+        earnings_cal = section_results.get("earnings_calendar") or []
+        econ_calendar = section_results.get("economic_calendar") or []
+
+        if self.marketaux.api_key:
+            try:
+                logger.info("Fetching Marketaux trending entities...")
+                trending_entities = self.marketaux.fetch_trending_entities()
+            except Exception as e:
+                logger.error(f"Marketaux fetch failed: {e}")
+
+        if fmp_fetcher:
             try:
                 # FMP used for DAILY news as requested
-                logger.info("Fetching FMP daily market news...")
-                market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
-                if market_news_fmp:
-                    for item in market_news_fmp:
-                        market_news.append({
-                            'title': item.get('title'),
-                            'url': item.get('url'),
-                            'site': 'FMP News',
-                            'summary': item.get('text', '')
-                        })
+                if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('stock_news'):
+                    logger.warning("FMP cooldown active for market news section; switching to fallback provider.")
+                else:
+                    logger.info("Fetching FMP daily market news...")
+                    market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
+                    if market_news_fmp:
+                        for item in market_news_fmp:
+                            market_news.append({
+                                'title': item.get('title'),
+                                'url': item.get('url'),
+                                'site': 'FMP News',
+                                'summary': item.get('text', '')
+                            })
                 
                 # FMP for economic calendar if not already populated
                 if not econ_calendar:
-                    econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
+                    if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('economic_calendar'):
+                        logger.warning("FMP cooldown active for economic calendar; skipping to existing/fallback sources.")
+                    else:
+                        econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
                 
                 # FMP for portfolio news DAILY 
                 if not portfolio_news and portfolio_tickers:
-                    portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
+                    if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('stock_news'):
+                        logger.warning("FMP cooldown active for portfolio news; switching to fallback provider.")
+                    else:
+                        portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
             except Exception as e:
-                logger.error(f"Failed to fetch FMP daily news: {e}")
+                logger.error(f"Failed to fetch FMP supplemental data: {e}")
 
-        # Fallback for news if everything else failed
-        if not market_news:
+                    if not portfolio_news and portfolio_tickers:
+                        portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
+                except Exception as e:
+                    logger.error(f"Failed to fetch FMP daily news: {e}")
+
+        if not market_news and "yfinance" in headline_providers:
             try:
                 logger.info("Falling back to basic yfinance news...")
                 for t in ['SPY', 'QQQ', 'DIA']:
@@ -536,12 +916,13 @@ class NewsletterGenerator:
                         market_news.append({
                             'title': n.get('title'),
                             'url': n.get('link'),
-                            'site': 'Yahoo Finance'
+                            'site': 'Yahoo Finance',
+                            'summary': '',
                         })
             except Exception as e:
                 logger.error(f"News fallback failed: {e}")
 
-        market_news = _dedupe_news(market_news, limit=16)
+        market_news = self._rank_and_dedupe_news(market_news, limit=12, max_source_ratio=0.4)
         market_news = self._select_diverse_market_news(market_news, state, limit=8)
         news_analysis = self._extract_entities_topics(market_news)
 
@@ -580,44 +961,46 @@ class NewsletterGenerator:
             return 'LOW'
 
         # 3. Dynamic Sector & Cap Analysis
-        sector_perf = []
+        sector_perf = section_results.get("sector_performance") or []
         cap_perf = {}
         index_perf = {}
-        if self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher:
+        if sector_perf:
             try:
-                sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
+                if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('sector-performance'):
+                    logger.warning("FMP cooldown active for sector performance section; using fallback providers.")
+                else:
+                    sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
                 # Sort sectors by performance
                 if sector_perf:
                     sector_perf = sorted(sector_perf, key=lambda x: float(x.get('changesPercentage', '0').replace('%','')), reverse=True)
             except Exception as e:
-                logger.error(f"Sector perf fetch failed: {e}")
+                logger.warning(f"Sector perf sort failed: {e}")
         
         # Cap Segment Analysis (SPY, MDY, IWM)
-        try:
-            for symbol, label in [('SPY', 'Large Cap'), ('MDY', 'Mid Cap'), ('IWM', 'Small Cap')]:
-                t = yf.Ticker(symbol)
-                hist = t.history(period='2d')
-                if len(hist) >= 2:
-                    change = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
-                    cap_perf[label] = round(change, 2)
-        except Exception as e:
-            logger.error(f"Cap perf check failed: {e}")
+        if "yfinance" in price_providers:
+            try:
+                for symbol, label in [('SPY', 'Large Cap'), ('MDY', 'Mid Cap'), ('IWM', 'Small Cap')]:
+                    t = yf.Ticker(symbol)
+                    hist = t.history(period='2d')
+                    if len(hist) >= 2:
+                        change = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                        cap_perf[label] = round(change, 2)
+            except Exception as e:
+                logger.error(f"Cap perf check failed: {e}")
 
         # Major index snapshot + sentiment/movers via Finnhub integration
         market_snapshot = {}
-        sentiment_proxy = {"score": 50.0, "label": "Neutral", "components": []}
-        notable_movers = []
+        sentiment_proxy = section_results.get("market_sentiment") or {"score": 50.0, "label": "Neutral", "components": []}
+        notable_movers = section_results.get("movers") or []
         if self.finnhub.api_key:
             try:
                 market_snapshot = self.finnhub.fetch_major_index_snapshot()
-                sentiment_proxy = self.finnhub.fetch_market_sentiment_proxy()
-                notable_movers = self.finnhub.fetch_notable_movers(limit=6)
                 for item in market_snapshot.values():
                     index_perf[item.get('label', item.get('symbol', 'Index'))] = item.get('change_pct', 0.0)
             except Exception as e:
                 logger.error(f"Finnhub snapshot check failed: {e}")
 
-        if not index_perf:
+        if not index_perf and "yfinance" in price_providers:
             try:
                 for symbol, label in [('SPY', 'S&P 500'), ('QQQ', 'NASDAQ 100'), ('DIA', 'Dow Jones'), ('IWM', 'Russell 2000')]:
                     hist = yf.Ticker(symbol).history(period='2d')
@@ -837,10 +1220,15 @@ class NewsletterGenerator:
             for i, idea in enumerate(top_buys[:5], 1):
                 ticker = idea.get('ticker', 'N/A')
                 score = _safe_num(idea.get('score'))
-                price = _safe_num(idea.get('current_price'))
+                price = _safe_num(self._authoritative_idea_price(idea))
                 thesis = idea.get('fundamental_snapshot') or "Technical and fundamental signals are aligned."
                 content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
                 content.append(f"   - Thesis: {thesis}")
+                snap = next((x for x in sentiment_snaps.get("top_buys", []) if x.get("ticker") == ticker), None)
+                if snap:
+                    content.append(
+                        f"   - Finnhub Signal Check: bullish {snap.get('bullish_pct', 0.0):.1f}% | bearish {snap.get('bearish_pct', 0.0):.1f}% | buzz {snap.get('buzz', 0.0):.2f}"
+                    )
             content.append("")
 
         if top_sells:
@@ -848,10 +1236,15 @@ class NewsletterGenerator:
             for i, idea in enumerate(top_sells[:5], 1):
                 ticker = idea.get('ticker', 'N/A')
                 score = _safe_num(idea.get('score'))
-                price = _safe_num(idea.get('current_price'))
+                price = _safe_num(self._authoritative_idea_price(idea))
                 reason = idea.get('reason') or "Momentum deterioration or risk-control trigger."
                 content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
                 content.append(f"   - Exit Logic: {reason}")
+                snap = next((x for x in sentiment_snaps.get("top_sells", []) if x.get("ticker") == ticker), None)
+                if snap:
+                    content.append(
+                        f"   - Finnhub Signal Check: bullish {snap.get('bullish_pct', 0.0):.1f}% | bearish {snap.get('bearish_pct', 0.0):.1f}% | news score {snap.get('company_news_score', 0.0):.2f}"
+                    )
             content.append("")
 
         if fund_performance_md:
@@ -909,15 +1302,15 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: TOP HEADLINES ---
+        content.append("## 8) Top Headlines")
+        headlines_intro = self._pick_fresh_text([
+            "Finnhub-first headline tape ranked on relevance + recency, then constrained for source/topic concentration.",
+            "Cross-source scan prioritizing fresh narratives over recycled headlines.",
+            "Headline tape below reflects both macro and single-name dispersion."
+        ], [r.get("headlines_intro", "") for r in recent_runs])
+        content.append(headlines_intro)
+        content.append("")
         if market_news:
-            content.append("## 8) Top Headlines")
-            headlines_intro = self._pick_fresh_text([
-                "Selected for source and topic diversity to reduce repeat narrative risk.",
-                "Cross-source scan prioritizing fresh narratives over recycled headlines.",
-                "Headline tape below reflects both macro and single-name dispersion."
-            ], [r.get("headlines_intro", "") for r in recent_runs])
-            content.append(headlines_intro)
-            content.append("")
             for item in market_news[:8]:
                 title = item.get('title', 'No Title')
                 url = item.get('url', '#')
@@ -927,7 +1320,9 @@ class NewsletterGenerator:
                     content.append(f"- [{title}]({url}) — *{site}*\n  - {summary[:180].rstrip()}...")
                 else:
                     content.append(f"- [{title}]({url}) — *{site}*")
-            content.append("")
+        else:
+            content.append("- Finnhub headline feed unavailable in this run; fallback feeds did not pass ranking/dedupe gates.")
+        content.append("")
 
         if portfolio_news:
             content.append("## 9) Portfolio-Specific News")
@@ -983,9 +1378,11 @@ class NewsletterGenerator:
             elif section_name == "Earnings Spotlight":
                 if earnings_cal:
                     for event in earnings_cal[:3]:
-                        content.append(f"- **{event.get('symbol', 'N/A')}** reports {event.get('date', '')}.")
+                        content.append(
+                            f"- **{event.get('symbol', 'N/A')}** reports {event.get('date', '')} ({event.get('hour', 'TBD')})."
+                        )
                 else:
-                    content.append("- No high-confidence earnings catalyst loaded in this run.")
+                    content.append("- Finnhub earnings calendar returned no high-confidence catalyst in this run.")
             elif section_name == "Insider/Flow Watch":
                 if trending_entities:
                     for ent in trending_entities[:3]:
@@ -1013,15 +1410,24 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: TODAY'S EVENTS ---
+        content.append("## 11) Today's Events")
         if econ_calendar:
-            content.append("## 11) Today's Events")
             for event in econ_calendar[:8]:
                 date = event.get('date', '')
                 event_time = event.get('time') or event.get('hour') or 'TBD'
                 title = event.get('event', 'Economic Event')
                 impact_tag = _event_impact_tag(event)
                 content.append(f"- **{date} {event_time}** — {title} `[{impact_tag}]`")
-            content.append("")
+        elif earnings_cal or ipo_calendar:
+            for event in earnings_cal[:4]:
+                content.append(
+                    f"- **{event.get('date', '')} {event.get('hour', 'TBD')}** — {event.get('symbol', 'N/A')} earnings `[{_event_impact_tag({'event': 'earnings'})}]`"
+                )
+            for event in ipo_calendar[:3]:
+                content.append(f"- **{event.get('date', '')}** — IPO watch: {event.get('symbol', 'N/A')} ({event.get('exchange', 'N/A')})")
+        else:
+            content.append("- Finnhub calendars unavailable for this run; no validated event tape to publish.")
+        content.append("")
 
         # --- GLOSSARY SECTION ---
         content.append("## 📖 Glossary")
@@ -1053,24 +1459,42 @@ class NewsletterGenerator:
                 prior_newsletter_md=prior_newsletter_md,
             )
 
+        final_md, section_qc_reports = self._apply_section_qc_fallbacks(final_md)
+
         qc_ok, qc_report, qc_errors = self._run_newsletter_qc(final_md)
+        qc_report["section_qc"] = [asdict(r) for r in section_qc_reports]
+        qc_report["section_qc_failures"] = float(sum(1 for r in section_qc_reports if not r.passed))
+        qc_report["provider_attribution"] = self._extract_provider_attribution(final_md)
         if not qc_ok:
             logger.warning(
-                "Newsletter QC failed (%s). Report: headings=%s, duplicate_headers=%s, sources=%s, duplicate_topic_ratio=%.3f. Falling back to safe template.",
+                "Newsletter QC failed (%s). Report: headings=%s, duplicate_headers=%s, sources=%s, duplicate_topic_ratio=%.3f, section_failures=%s. Falling back to safe template.",
                 ",".join(qc_errors),
                 int(qc_report.get("heading_count", 0)),
                 int(qc_report.get("duplicate_header_count", 0)),
                 int(qc_report.get("source_count", 0)),
                 qc_report.get("duplicate_topic_ratio", 0.0),
+                int(qc_report.get("section_qc_failures", 0)),
             )
             final_md = self._build_qc_fallback_template(date_str)
         else:
             logger.info(
-                "Newsletter QC passed: headings=%s, sources=%s, duplicate_topic_ratio=%.3f",
+                "Newsletter QC passed: headings=%s, sources=%s, duplicate_topic_ratio=%.3f, section_failures=%s",
                 int(qc_report.get("heading_count", 0)),
                 int(qc_report.get("source_count", 0)),
                 qc_report.get("duplicate_topic_ratio", 0.0),
+                int(qc_report.get("section_qc_failures", 0)),
             )
+
+        diagnostics_lines = ["", "## Internal Diagnostics"]
+        for plan in section_plans:
+            status_row = section_status.get(plan.section_name, {"status": "failed", "provider": "none"})
+            diag_summary = plan.render_fn(section_results.get(plan.section_name))
+            diagnostics_lines.append(
+                f"- **{plan.section_name}**: {status_row['status']} via `{status_row['provider']}` "
+                f"(primary={plan.primary_provider}, fallback={plan.fallback_provider}, "
+                f"max_items={plan.max_items}, sla={plan.freshness_sla}, {diag_summary})"
+            )
+        final_md = final_md.rstrip() + "\n" + "\n".join(diagnostics_lines) + "\n"
 
         # Save markdown archive file
         output_path_obj = Path(output_path)
@@ -1088,7 +1512,8 @@ class NewsletterGenerator:
             "lead_sentence": lead_sentence,
             "watchlist_intro": watchlist_intro,
             "headlines_intro": headlines_intro if market_news else "",
-            "optional_sections": optional_sections
+            "optional_sections": optional_sections,
+            "section_status": section_status
         })
         state["runs"] = state_runs[-5:]
         self._save_newsletter_state(state)

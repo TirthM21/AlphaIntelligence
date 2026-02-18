@@ -5,14 +5,18 @@ via Gmail SMTP. Requires a Gmail account with App Password.
 """
 
 import logging
+import mimetypes
 import os
+import re
 import smtplib
+from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from uuid import uuid4
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -45,6 +49,42 @@ class EmailNotifier:
         else:
             logger.info(f"Email notifications enabled - will send to {self.recipient_email}")
     
+    @staticmethod
+    def _is_remote_image_source(image_src: str) -> bool:
+        source = (image_src or "").strip().lower()
+        return source.startswith(("http://", "https://", "cid:", "data:"))
+
+    def _embed_local_images_in_html(self, html: str, base_dir: Path) -> Tuple[str, List[Tuple[Path, str, str]]]:
+        """Replace local <img> sources with cid references and return inline attachments metadata."""
+        attachments: List[Tuple[Path, str, str]] = []
+
+        def _replace_src(match: re.Match) -> str:
+            prefix, image_src, suffix = match.groups()
+            raw_src = (image_src or "").strip()
+            if not raw_src or self._is_remote_image_source(raw_src):
+                return match.group(0)
+
+            resolved = Path(raw_src)
+            if not resolved.is_absolute():
+                resolved = (base_dir / raw_src).resolve()
+
+            if not resolved.exists() or not resolved.is_file():
+                logger.warning("Newsletter image path not found; leaving source unchanged: %s", raw_src)
+                return match.group(0)
+
+            mime_type, _ = mimetypes.guess_type(str(resolved))
+            mime_type = mime_type or "image/png"
+            if not mime_type.startswith("image/"):
+                logger.warning("Unsupported inline image MIME type (%s) for %s", mime_type, resolved)
+                return match.group(0)
+
+            content_id = f"newsletter-{uuid4().hex}"
+            attachments.append((resolved, content_id, mime_type))
+            return f'{prefix}cid:{content_id}{suffix}'
+
+        rewritten_html = re.sub(r'(<img[^>]*\bsrc=["\'])([^"\']+)(["\'][^>]*>)', _replace_src, html, flags=re.IGNORECASE)
+        return rewritten_html, attachments
+
     def send_newsletter(
         self,
         newsletter_path: str,
@@ -82,17 +122,31 @@ class EmailNotifier:
                 date_str = datetime.now().strftime('%B %d, %Y')
                 subject = f"🏦 AlphaIntelligence Capital — Daily Brief | {date_str}"
             
+            html_base_dir = newsletter_html_path.parent if newsletter_html_path.exists() else Path(newsletter_path).parent
+            newsletter_html, image_attachments = self._embed_local_images_in_html(newsletter_html, html_base_dir)
+
             # Create email
-            msg = MIMEMultipart('alternative')
+            msg = MIMEMultipart('related')
             msg['Subject'] = subject
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
+
+            alternative_part = MIMEMultipart('alternative')
+            msg.attach(alternative_part)
             
             # Add multipart body (plain text + HTML)
             plain_part = MIMEText(newsletter_md, 'plain', 'utf-8')
             html_part = MIMEText(newsletter_html, 'html', 'utf-8')
-            msg.attach(plain_part)
-            msg.attach(html_part)
+            alternative_part.attach(plain_part)
+            alternative_part.attach(html_part)
+
+            for image_path, content_id, mime_type in image_attachments:
+                subtype = mime_type.split('/', 1)[1]
+                with image_path.open('rb') as image_file:
+                    image_part = MIMEImage(image_file.read(), _subtype=subtype)
+                image_part.add_header('Content-ID', f'<{content_id}>')
+                image_part.add_header('Content-Disposition', 'inline', filename=image_path.name)
+                msg.attach(image_part)
             
             # Attach full scan report if provided
             if scan_report_path and Path(scan_report_path).exists():
@@ -447,177 +501,178 @@ class EmailNotifier:
             <meta charset="UTF-8">
             <style>
                 body {{
-                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                    line-height: 1.6;
+                    font-family: Georgia, 'Times New Roman', serif;
+                    line-height: 1.7;
                     margin: 0;
-                    padding: 0;
-                    background-color: #0a0e27;
-                    color: #e0e0e0;
+                    padding: 16px;
+                    background-color: #f0f1f3;
+                    color: #1f2937;
                 }}
                 .wrapper {{
-                    padding: 40px 20px;
+                    max-width: 800px;
+                    margin: 0 auto;
                 }}
                 .header-bar {{
-                    background: linear-gradient(135deg, #131836 0%, #1a2450 100%);
-                    padding: 30px 40px;
-                    border-radius: 12px 12px 0 0;
-                    border-bottom: 3px solid #c9a84c;
+                    background: #ffffff;
+                    padding: 44px 42px 30px;
+                    border: 1px solid #d1d5db;
+                    border-bottom: none;
                     max-width: 800px;
                     margin: 0 auto;
                 }}
                 .header-bar h1.brand {{
-                    color: #c9a84c;
-                    font-size: 22px;
+                    color: #111827;
+                    font-size: 38px;
                     margin: 0;
-                    letter-spacing: 2px;
-                    text-transform: uppercase;
+                    letter-spacing: 0;
+                    text-transform: none;
                     border: none;
                     padding: 0;
+                    text-align: center;
                 }}
                 .header-bar .tagline {{
-                    color: #8b95b8;
-                    font-size: 12px;
-                    margin-top: 4px;
-                    letter-spacing: 1px;
+                    color: #6b7280;
+                    font-size: 15px;
+                    margin-top: 12px;
+                    text-align: center;
                 }}
                 .container {{
-                    background: #131836;
-                    padding: 40px;
-                    border-radius: 0 0 12px 12px;
+                    background: #ffffff;
+                    padding: 36px 42px;
+                    border: 1px solid #d1d5db;
                     max-width: 800px;
                     margin: 0 auto;
-                    border: 1px solid #1e2a5a;
-                    border-top: none;
                 }}
                 h1 {{
-                    color: #ffffff;
-                    border-bottom: 2px solid #c9a84c;
-                    padding-bottom: 12px;
-                    font-size: 24px;
+                    color: #111827;
+                    border-bottom: 2px solid #111827;
+                    padding-bottom: 16px;
+                    font-size: 44px;
                     margin-top: 0;
+                    line-height: 1.18;
+                    text-align: center;
                 }}
                 h2 {{
-                    color: #c9a84c;
+                    color: #111827;
                     margin-top: 35px;
-                    border-bottom: 1px solid #1e2a5a;
-                    padding-bottom: 8px;
-                    font-size: 20px;
+                    border-bottom: 1px solid #d1d5db;
+                    padding-bottom: 10px;
+                    font-size: 30px;
                 }}
                 h3 {{
-                    color: #8b95b8;
-                    border-left: 4px solid #c9a84c;
-                    padding-left: 15px;
-                    margin-top: 20px;
+                    color: #111827;
+                    border-left: 4px solid #374151;
+                    padding-left: 14px;
+                    margin-top: 24px;
+                    font-size: 22px;
                 }}
                 table {{
                     width: 100%;
                     border-collapse: collapse;
                     margin: 20px 0;
-                    background: #0e1230;
-                    border-radius: 8px;
+                    background: #ffffff;
+                    border-radius: 6px;
                     overflow: hidden;
+                    border: 1px solid #e5e7eb;
                 }}
                 th {{
                     padding: 12px 15px;
                     text-align: left;
-                    background: #1a2450;
-                    color: #c9a84c;
+                    background: #f9fafb;
+                    color: #111827;
                     text-transform: uppercase;
                     font-size: 11px;
                     font-weight: 600;
                     letter-spacing: 1px;
-                    border-bottom: 2px solid #c9a84c;
+                    border-bottom: 1px solid #d1d5db;
                 }}
                 td {{
                     padding: 10px 15px;
                     text-align: left;
-                    border-bottom: 1px solid #1e2a5a;
-                    color: #d0d0d0;
+                    border-bottom: 1px solid #e5e7eb;
+                    color: #1f2937;
                 }}
                 tr:hover td {{
-                    background: #1a2040;
+                    background: #f9fafb;
                 }}
                 ul {{
-                    background: #0e1230;
-                    padding: 15px 20px 15px 35px;
-                    border-radius: 8px;
-                    border-left: 4px solid #1e2a5a;
-                    list-style-type: none;
+                    background: #ffffff;
+                    padding: 8px 0 8px 24px;
+                    border-radius: 0;
+                    border-left: none;
+                    list-style-type: disc;
                 }}
                 li {{
                     margin-bottom: 8px;
-                    color: #d0d0d0;
-                }}
-                li::before {{
-                    content: '▸ ';
-                    color: #c9a84c;
+                    color: #1f2937;
                 }}
                 a {{
-                    color: #60a5fa;
+                    color: #1d4ed8;
                     text-decoration: none;
                     font-weight: 500;
                 }}
                 a:hover {{
                     text-decoration: underline;
-                    color: #93c5fd;
+                    color: #1e40af;
                 }}
                 blockquote {{
-                    background: #0e1230;
-                    border-radius: 8px;
+                    background: #f9fafb;
+                    border-radius: 0;
                     padding: 15px 25px;
                     margin: 20px 0;
-                    border-left: 5px solid #c9a84c;
+                    border-left: 5px solid #6b7280;
                     font-style: italic;
-                    color: #b0b8d0;
+                    color: #374151;
                 }}
                 figure {{
                     margin: 20px 0;
-                    background: #0e1230;
-                    border: 1px solid #1e2a5a;
-                    border-radius: 10px;
+                    background: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 6px;
                     padding: 12px;
                 }}
                 figure img {{
                     width: 100%;
-                    border-radius: 6px;
+                    border-radius: 4px;
                     display: block;
                 }}
                 figcaption {{
                     margin-top: 8px;
-                    color: #8b95b8;
+                    color: #6b7280;
                     font-size: 12px;
                 }}
                 p {{
-                    color: #d0d0d0;
+                    color: #1f2937;
+                    font-size: 20px;
                 }}
                 strong {{
-                    color: #ffffff;
+                    color: #111827;
                 }}
                 em {{
-                    color: #8b95b8;
+                    color: #4b5563;
                 }}
                 hr {{
                     border: none;
-                    border-top: 1px solid #1e2a5a;
+                    border-top: 1px solid #d1d5db;
                     margin: 30px 0;
                 }}
                 .footer {{
                     margin-top: 40px;
                     text-align: center;
-                    color: #4a5280;
+                    color: #6b7280;
                     font-size: 11px;
-                    border-top: 1px solid #1e2a5a;
+                    border-top: 1px solid #d1d5db;
                     padding-top: 25px;
                 }}
                 .footer a {{
-                    color: #c9a84c;
+                    color: #1d4ed8;
                 }}
             </style>
         </head>
         <body>
             <div class="wrapper">
                 <div class="header-bar">
-                    <h1 class="brand">🏦 AlphaIntelligence Capital</h1>
+                    <h1 class="brand">AlphaIntelligence Capital</h1>
                     <div class="tagline">Systematic Alpha Research & Quantitative Intelligence</div>
                 </div>
                 <div class="container">

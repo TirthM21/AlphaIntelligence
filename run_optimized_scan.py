@@ -640,6 +640,8 @@ def main():
                                     logger.error(f"Failed to send to {email}: {type(e).__name__}: {e}")
                             
                             logger.info(f"✅ Delivery complete: {success_count}/{len(subscribers)} successful.")
+                            if success_count == 0 and len(subscribers) > 0:
+                                logger.error("CRITICAL: All email delivery attempts failed.")
                 except Exception as email_err:
                     logger.error(f"Failed to send newsletter email: {email_err}")
             else:

@@ -150,7 +150,8 @@ class USStockUniverseFetcher:
         # Remove obvious ETFs and funds (heuristic based on name)
         etf_keywords = [
             'ETF', 'FUND', 'TRUST', 'INDEX', 'PORTFOLIO',
-            'SHARES', 'NOTES', 'BOND', 'TREASURY'
+            'SHARES', 'NOTES', 'BOND', 'TREASURY', 'ETN',
+            'REIT', 'INCOME', 'CLOSED END', 'ESTATE'
         ]
         etf_pattern = '|'.join(etf_keywords)
         df = df[~df['name'].str.upper().str.contains(etf_pattern, na=False)]

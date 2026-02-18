@@ -781,6 +781,7 @@ class NewsletterGenerator:
         # Canonical FRED macro bundle for macro/rates/risk sections
         macro_bundle = {}
         macro_render = {"meta": [], "snapshot": [], "rates": [], "risk": [], "warning": []}
+        date_str = datetime.now().strftime('%B %d, %Y')
         try:
             logger.info("Fetching canonical FRED macro bundle...")
             macro_bundle = self.fred.fetch_canonical_macro_bundle()
@@ -824,6 +825,8 @@ class NewsletterGenerator:
         def _fetch_market_headlines(provider: str) -> List[Dict]:
             if provider == "finnhub":
                 return self.finnhub.fetch_top_market_news(limit=10, category="general") or []
+            if provider == "marketaux":
+                return self.marketaux.fetch_market_news(limit=10) or []
             if provider == "fmp" and fmp_fetcher:
                 raw = fmp_fetcher.fetch_market_news(limit=10) or []
                 return [
@@ -895,7 +898,7 @@ class NewsletterGenerator:
             SectionDataPlan("macro", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 6, "24h"),
             SectionDataPlan("rates", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 4, "24h"),
             SectionDataPlan("economic_calendar", "fred", "fmp", _fetch_economic_calendar, _diag_renderer, 8, "4h"),
-            SectionDataPlan("market_headlines", "finnhub", "fmp", _fetch_market_headlines, _diag_renderer, 8, "1h"),
+            SectionDataPlan("market_headlines", "finnhub", "marketaux", _fetch_market_headlines, _diag_renderer, 8, "1h"),
             SectionDataPlan("market_sentiment", "finnhub", "fmp", _fetch_market_sentiment, _diag_renderer, 1, "15m"),
             SectionDataPlan("earnings_calendar", "finnhub", "fmp", _fetch_earnings_calendar, _diag_renderer, 8, "12h"),
             SectionDataPlan("sector_performance", "fmp", "finnhub", _fetch_sector_performance, _diag_renderer, 11, "1h"),
@@ -1397,21 +1400,8 @@ class NewsletterGenerator:
 
         if portfolio_news:
             content.append("## 9) Portfolio-Specific News")
-            for item in portfolio_news[:6]:
-                title = item.get('title', 'No Title')
-                symbol = item.get('symbol', 'N/A')
-                url = item.get('url', '#')
-                content.append(f"- **{symbol}:** [{title}]({url})")
-            content.append("")
+        # Removed redundant sections (Portfolio News / Earnings Radar) - moved further down
 
-        if earnings_cal:
-            content.append("## 10) Earnings Radar (Next 5 Days)")
-            for event in earnings_cal[:8]:
-                symbol = event.get('symbol', 'N/A')
-                date = event.get('date', '')
-                eps_est = event.get('epsEstimate', 'N/A')
-                content.append(f"- **{date}** — {symbol} (EPS est: {eps_est})")
-            content.append("")
 
         if portfolio_news:
             content.append("## 7) Portfolio-Specific News")
@@ -1590,7 +1580,6 @@ class NewsletterGenerator:
         self._save_newsletter_state(state)
             
         logger.info(f"Professional Newsletter generated at {output_path}")
-        logger.info(f"Newsletter HTML presentation generated at {html_output}")
         return output_path
 
 

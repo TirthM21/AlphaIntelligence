@@ -902,11 +902,6 @@ class NewsletterGenerator:
             except Exception as e:
                 logger.error(f"Failed to fetch FMP supplemental data: {e}")
 
-                    if not portfolio_news and portfolio_tickers:
-                        portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
-                except Exception as e:
-                    logger.error(f"Failed to fetch FMP daily news: {e}")
-
         if not market_news and "yfinance" in headline_providers:
             try:
                 logger.info("Falling back to basic yfinance news...")

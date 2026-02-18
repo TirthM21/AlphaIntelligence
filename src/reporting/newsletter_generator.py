@@ -39,6 +39,17 @@ class SectionQCReport:
     passed: bool
     errors: List[str]
 
+
+@dataclass
+class SectionDataPlan:
+    section_name: str
+    primary_provider: str
+    fallback_provider: str
+    fetch_fn: Callable[[str], Any]
+    render_fn: Callable[[Any], str]
+    max_items: int
+    freshness_sla: str
+
 class NewsletterGenerator:
     """Generates a high-quality, professional daily market newsletter."""
 
@@ -754,56 +765,18 @@ class NewsletterGenerator:
         # 2. Section registry: primary + fallback provider execution per section
         fmp_fetcher = self.fetcher.fmp_fetcher if (self.fetcher and self.fetcher.fmp_available and self.fetcher.fmp_fetcher) else None
         section_status: Dict[str, Dict[str, str]] = {}
+        headline_providers = self._get_runtime_providers("headlines")
+        price_providers = self._get_runtime_providers("prices")
 
         def _has_data(data: Any) -> bool:
             return data not in (None, {}, [])
 
-        def _execute_section_plan(plan: SectionDataPlan) -> Any:
-            try:
-                logger.info("Fetching Finnhub market news & calendars...")
-                market_news.extend(self.finnhub.fetch_top_market_news(limit=10, category='general'))
-                earnings_cal = self.finnhub.fetch_earnings_calendar_standardized(days_forward=5, limit=20)
-                econ_calendar = self.finnhub.fetch_economic_calendar() # Might return [] if not premium
-                ipo_calendar = self.finnhub.fetch_ipo_calendar(days_forward=10, limit=10)
-
-                buy_tickers = [x.get('ticker', '') for x in (top_buys or []) if x.get('ticker')]
-                sell_tickers = [x.get('ticker', '') for x in (top_sells or []) if x.get('ticker')]
-                sentiment_snaps = self.finnhub.fetch_top_ticker_sentiment_snapshots(
-                    top_buy_tickers=buy_tickers,
-                    top_sell_tickers=sell_tickers,
-                    per_side=3,
-                )
-                
-                if portfolio_tickers:
-                    for t in portfolio_tickers[:3]:
-                        p_news = self.finnhub.fetch_company_news(t)
-                        for item in p_news[:2]:
-                            portfolio_news.append({
-                                'title': item.get('headline'),
-                                'symbol': t,
-                                'url': item.get('url'),
-                                'summary': item.get('summary', '')
-                            })
-            except Exception as e:
-                logger.error(f"Section {plan.section_name} primary provider {plan.primary_provider} failed: {e}")
-
-            try:
-                logger.info("Fetching Marketaux trending entities...")
-                trending_entities = self.marketaux.fetch_trending_entities()
-                
-                # If news is still thin, add from Marketaux
-                if len(market_news) < 3:
-                    ma_news = self.marketaux.fetch_market_news(limit=5)
-                    for item in ma_news:
-                        market_news.append({
-                            'title': item.get('title'),
-                            'url': item.get('url'),
-                            'site': item.get('source', 'Marketaux'),
-                            'summary': item.get('snippet', ''),
-                            'datetime': item.get('published_at_ts') or item.get('published_at')
-                        })
-            except Exception as e:
-                logger.error(f"Section {plan.section_name} fallback provider {plan.fallback_provider} failed: {e}")
+        def _diag_renderer(payload: Any) -> str:
+            if isinstance(payload, list):
+                return f"items={len(payload)}"
+            if isinstance(payload, dict):
+                return f"keys={len(payload.keys())}"
+            return f"type={type(payload).__name__}"
 
         # Canonical FRED macro bundle for macro/rates/risk sections
         macro_bundle = {}
@@ -826,6 +799,66 @@ class NewsletterGenerator:
             }
             macro_render = self._build_macro_section_payload(macro_bundle)
 
+        def _fetch_macro_rates(provider: str) -> Dict[str, Any]:
+            if provider == "fred":
+                return {
+                    "econ_data": macro_bundle,
+                    "macro_panel": macro_render,
+                    "macro_panel_fallback": macro_bundle.get("warning", ""),
+                }
+            if provider == "fmp" and fmp_fetcher:
+                return {
+                    "econ_data": fmp_fetcher.fetch_economic_data() or {},
+                    "macro_panel": macro_render,
+                    "macro_panel_fallback": "",
+                }
+            return {}
+
+        def _fetch_economic_calendar(provider: str) -> List[Dict]:
+            if provider == "fred":
+                return self.finnhub.fetch_economic_calendar() if self.finnhub.api_key else []
+            if provider == "fmp" and fmp_fetcher:
+                return fmp_fetcher.fetch_economic_calendar(days_forward=3) or []
+            return []
+
+        def _fetch_market_headlines(provider: str) -> List[Dict]:
+            if provider == "finnhub":
+                return self.finnhub.fetch_top_market_news(limit=10, category="general") or []
+            if provider == "fmp" and fmp_fetcher:
+                raw = fmp_fetcher.fetch_market_news(limit=10) or []
+                return [
+                    {
+                        "title": item.get("title"),
+                        "url": item.get("url"),
+                        "site": item.get("site") or "FMP News",
+                        "summary": item.get("text") or item.get("summary", ""),
+                        "datetime": item.get("publishedDate") or item.get("date"),
+                    }
+                    for item in raw
+                    if item.get("title")
+                ]
+            return []
+
+        def _fetch_market_sentiment(provider: str) -> Dict[str, Any]:
+            if provider == "finnhub":
+                return self.finnhub.fetch_market_sentiment_proxy() or {}
+            return {"score": 50.0, "label": "Neutral", "components": []}
+
+        def _fetch_earnings_calendar(provider: str) -> List[Dict]:
+            if provider == "finnhub":
+                return self.finnhub.fetch_earnings_calendar_standardized(days_forward=5, limit=20) or []
+            return []
+
+        def _fetch_sector_performance(provider: str) -> List[Dict]:
+            if provider == "fmp" and fmp_fetcher:
+                return fmp_fetcher.fetch_sector_performance() or []
+            return []
+
+        def _fetch_movers(provider: str) -> List[Dict]:
+            if provider == "finnhub":
+                return self.finnhub.fetch_notable_movers(limit=6) or []
+            return []
+
         def _fetch_fundamentals_snippets(provider: str) -> List[Dict]:
             snippets: List[Dict] = []
             if provider == "fmp" and self.fetcher:
@@ -837,6 +870,26 @@ class NewsletterGenerator:
                     if self.finnhub.fetch_basic_financials(ticker):
                         snippets.append({"symbol": ticker, "summary": "Finnhub basic financials retrieved"})
             return snippets
+
+        def _execute_section_plan(plan: SectionDataPlan) -> Any:
+            for provider in [plan.primary_provider, plan.fallback_provider]:
+                try:
+                    data = plan.fetch_fn(provider)
+                    if _has_data(data):
+                        if isinstance(data, list):
+                            data = data[:plan.max_items]
+                        section_status[plan.section_name] = {"status": "success", "provider": provider}
+                        return data
+                except Exception as e:
+                    logger.error(
+                        "Section %s provider %s failed: %s",
+                        plan.section_name,
+                        provider,
+                        e,
+                    )
+
+            section_status[plan.section_name] = {"status": "failed", "provider": "none"}
+            return [] if plan.section_name not in {"macro", "rates", "market_sentiment"} else {}
 
         section_plans: List[SectionDataPlan] = [
             SectionDataPlan("macro", "fred", "fmp", _fetch_macro_rates, _diag_renderer, 6, "24h"),
@@ -853,6 +906,29 @@ class NewsletterGenerator:
         section_results: Dict[str, Any] = {}
         for plan in section_plans:
             section_results[plan.section_name] = _execute_section_plan(plan)
+
+        # Extra Finnhub data for newsletter sections (when key is available)
+        if self.finnhub.api_key:
+            try:
+                ipo_calendar = self.finnhub.fetch_ipo_calendar(days_forward=10, limit=10)
+                buy_tickers = [x.get('ticker', '') for x in (top_buys or []) if x.get('ticker')]
+                sell_tickers = [x.get('ticker', '') for x in (top_sells or []) if x.get('ticker')]
+                sentiment_snaps = self.finnhub.fetch_top_ticker_sentiment_snapshots(
+                    top_buy_tickers=buy_tickers,
+                    top_sell_tickers=sell_tickers,
+                    per_side=3,
+                )
+                if portfolio_tickers:
+                    for t in portfolio_tickers[:3]:
+                        for item in (self.finnhub.fetch_company_news(t) or [])[:2]:
+                            portfolio_news.append({
+                                'title': item.get('headline') or item.get('title'),
+                                'symbol': t,
+                                'url': item.get('url'),
+                                'summary': item.get('summary', ''),
+                            })
+            except Exception as e:
+                logger.error(f"Finnhub supplemental fetch failed: {e}")
 
         macro_payload = section_results.get("macro") or {}
         econ_data = macro_payload.get("econ_data", {})

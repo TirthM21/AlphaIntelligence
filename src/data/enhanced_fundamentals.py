@@ -45,7 +45,6 @@ class EnhancedFundamentalsFetcher:
         else:
             logger.info("FMP_API_KEY not set - using yfinance only")
 
-        self.fmp_call_count = 0
         self.fmp_daily_limit = 250
 
     def fetch_quarterly_data(
@@ -64,11 +63,11 @@ class EnhancedFundamentalsFetcher:
         """
         # If FMP requested and available, use it
         if use_fmp and self.fmp_available:
-            if self.fmp_call_count < self.fmp_daily_limit:
+            usage_stats = self.fmp_fetcher.get_usage_stats() if self.fmp_fetcher else {}
+            if usage_stats.get('attempted_calls', 0) < self.fmp_daily_limit:
                 try:
                     # Fetch basic + advanced (DCF/Insider)
                     data = self.fmp_fetcher.fetch_comprehensive_fundamentals(ticker, include_advanced=True)
-                    self.fmp_call_count += 6  # 4 base + 1 DCF + 1 Insider
 
                     if data and data.get('income_statement'):
                         logger.info(f"FUNDAMENTALS [{ticker}]: Source = FMP (Enhanced)")
@@ -264,11 +263,16 @@ class EnhancedFundamentalsFetcher:
         Returns:
             Dict with FMP call count, limit, and bandwidth
         """
+        persisted_usage = self.fmp_fetcher.get_usage_stats() if (self.fmp_available and self.fmp_fetcher) else {}
+        attempted_calls = persisted_usage.get('attempted_calls', 0)
         usage = {
             'fmp_available': self.fmp_available,
-            'fmp_calls_used': self.fmp_call_count,
+            'fmp_attempted_calls': attempted_calls,
+            'fmp_successful_calls': persisted_usage.get('successful_calls', 0),
+            'fmp_throttled_calls': persisted_usage.get('throttled_calls', 0),
+            'fmp_cache_hits': persisted_usage.get('cache_hits', 0),
             'fmp_daily_limit': self.fmp_daily_limit,
-            'fmp_calls_remaining': max(0, self.fmp_daily_limit - self.fmp_call_count)
+            'fmp_calls_remaining': max(0, self.fmp_daily_limit - attempted_calls)
         }
 
         # Add bandwidth stats if FMP is available
@@ -280,5 +284,12 @@ class EnhancedFundamentalsFetcher:
 
     def reset_usage_counter(self):
         """Reset FMP usage counter (call at start of new day)."""
-        self.fmp_call_count = 0
+        if self.fmp_fetcher:
+            self.fmp_fetcher.usage_state['attempted_calls'] = 0
+            self.fmp_fetcher.usage_state['successful_calls'] = 0
+            self.fmp_fetcher.usage_state['throttled_calls'] = 0
+            self.fmp_fetcher.usage_state['cache_hits'] = 0
+            self.fmp_fetcher.usage_state['cache_misses'] = 0
+            self.fmp_fetcher.usage_state['request_log'] = []
+            self.fmp_fetcher._save_usage_state()
         logger.info("FMP usage counter reset")

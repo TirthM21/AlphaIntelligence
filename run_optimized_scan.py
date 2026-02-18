@@ -360,10 +360,41 @@ def main():
         except Exception as e:
             logger.error(f"✗ SEC Fetcher: Failed to initialize: {e}")
             
-        # 3. Check Email
+        # 3. Check FRED
+        try:
+            from src.data.fred_fetcher import FredFetcher
+            fred = FredFetcher()
+            if fred.api_key:
+                test_geo = fred.fetch_series_observations("FEDFUNDS", limit=1)
+                if test_geo:
+                    logger.info("✓ FRED API: Working correctly")
+                else:
+                    logger.warning("⚠ FRED API: Key present but fetch failed")
+            else:
+                logger.warning("• FRED API: Not configured (Optional)")
+        except Exception as e:
+            logger.error(f"✗ FRED Fetcher: Error: {e}")
+
+        # 4. Check MarketAux
+        try:
+            from src.data.marketaux_fetcher import MarketauxFetcher
+            aux = MarketauxFetcher()
+            if aux.api_key:
+                test_news = aux.fetch_market_news(limit=1)
+                if test_news:
+                    logger.info("✓ MarketAux API: Working correctly")
+                else:
+                    logger.warning("⚠ MarketAux API: Key present but fetch failed")
+            else:
+                logger.warning("• MarketAux API: Not configured (Optional)")
+        except Exception as e:
+            logger.error(f"✗ MarketAux Fetcher: Error: {e}")
+
+        # 5. Check Email
         n = EmailNotifier()
         if n.enabled:
             logger.info(f"✓ Email: Configured (Sender: {n.sender_email})")
+            # Create a simple test email object to verify it doesn't crash on init
         else:
             logger.warning("• Email: Not configured (Optional)")
             

@@ -1,0 +1,17 @@
+2026-02-18 21:58:59,766 - pyrate_limiter.limiter - INFO - Initializing default bucket(InMemoryBucket) with rates: [limit=10/1000]
+2026-02-18 21:59:01,914 - __main__ - INFO - Configuration: 3 workers ╫ 2.0 TPS = ~6.0 TPS effective
+2026-02-18 21:59:01,914 - __main__ - INFO - ============================================================
+2026-02-18 21:59:01,914 - __main__ - INFO - DIAGNOSTIC CHECK
+2026-02-18 21:59:01,914 - __main__ - INFO - ============================================================
+2026-02-18 21:59:01,930 - src.data.fmp_fetcher - INFO - FMPFetcher initialized
+2026-02-18 21:59:01,930 - src.data.fmp_fetcher - INFO - FMP CACHE HIT (Monthly): income-statement
+2026-02-18 21:59:01,932 - __main__ - INFO - \u2713 FMP API: Working correctly
+2026-02-18 21:59:02,765 - src.data.sec_fetcher - INFO - SECFetcher initialized (dir: data\test_sec)
+2026-02-18 21:59:02,765 - __main__ - INFO - \u2713 SEC Fetcher: Module loaded
+2026-02-18 21:59:02,767 - src.data.fred_fetcher - INFO - FredFetcher initialized
+2026-02-18 21:59:02,767 - src.data.fred_fetcher - INFO - FRED CACHE MISS: Fetching series/observations from API...
+2026-02-18 21:59:03,607 - __main__ - INFO - \u2713 FRED API: Working correctly
+2026-02-18 21:59:12,922 - __main__ - INFO - \u2713 MarketAux API: Working correctly
+2026-02-18 21:59:12,923 - src.notifications.email_notifier - INFO - Email notifications enabled - will send to tirthmehta8994@gmail.com
+2026-02-18 21:59:12,923 - __main__ - INFO - \u2713 Email: Configured (Sender: contact.hardwareaashram@gmail.com)
+2026-02-18 21:59:12,923 - __main__ - INFO - ============================================================

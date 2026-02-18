@@ -561,7 +561,7 @@ class EmailNotifier:
                     text-decoration: underline;
                     color: #93c5fd;
                 }}
-                blockquote {
+                blockquote {{
                     background: #0e1230;
                     border-radius: 8px;
                     padding: 15px 25px;
@@ -569,24 +569,24 @@ class EmailNotifier:
                     border-left: 5px solid #c9a84c;
                     font-style: italic;
                     color: #b0b8d0;
-                }
-                figure {
+                }}
+                figure {{
                     margin: 20px 0;
                     background: #0e1230;
                     border: 1px solid #1e2a5a;
                     border-radius: 10px;
                     padding: 12px;
-                }
-                figure img {
+                }}
+                figure img {{
                     width: 100%;
                     border-radius: 6px;
                     display: block;
-                }
-                figcaption {
+                }}
+                figcaption {{
                     margin-top: 8px;
                     color: #8b95b8;
                     font-size: 12px;
-                }
+                }}
                 p {{
                     color: #d0d0d0;
                 }}

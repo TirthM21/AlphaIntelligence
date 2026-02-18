@@ -243,7 +243,22 @@ class AIAgent:
                 stream=False
             )
             
-            return completion.choices[0].message.content.strip() if completion.choices else None
+            if not completion.choices:
+                return None
+
+            content = completion.choices[0].message.content
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict):
+                        text_val = part.get("text")
+                        if isinstance(text_val, str):
+                            text_parts.append(text_val)
+                joined = "".join(text_parts).strip()
+                return joined or None
+            return None
             
         except Exception as e:
             logger.error(f"AI API call failed: {e}")

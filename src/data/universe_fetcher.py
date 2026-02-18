@@ -15,6 +15,7 @@ import pandas as pd
 import requests
 
 from .fmp_fetcher import FMPFetcher
+from .finnhub_fetcher import FinnhubFetcher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,42 +39,41 @@ class USStockUniverseFetcher:
         logger.info("USStockUniverseFetcher initialized")
 
     def _fetch_from_fmp(self) -> pd.DataFrame:
-        """Fetch stock list from Financial Modeling Prep.
-        
-        Uses FMP's stock list endpoint which returns all US-listed stocks
-        with symbol, name, price, and exchange info.
-        
-        Returns:
-            DataFrame with symbols and names
-        """
+        """Fetch stock list from Financial Modeling Prep with Finnhub fallback."""
         try:
             fmp = FMPFetcher()
-            if not fmp.api_key:
-                logger.info("FMP API key not set, skipping FMP universe fetch")
-                return pd.DataFrame()
-            
-            stocks = fmp.fetch_stock_list()
-            if not stocks:
-                logger.warning("FMP returned empty stock list")
-                return pd.DataFrame()
-            
-            df = pd.DataFrame(stocks)
-            if 'symbol' not in df.columns:
-                return pd.DataFrame()
-            
-            # Rename to match expected format
-            df = df[['symbol', 'name']].copy()
-            
-            # Filter out penny stocks (price < $1) if price data available
-            if 'price' in pd.DataFrame(stocks).columns:
-                prices = pd.DataFrame(stocks)['price']
-                mask = prices.fillna(0) >= 1.0
-                df = df[mask.values]
-            
-            logger.info(f"FMP universe: {len(df)} US stocks fetched")
-            return df
+            if fmp.api_key:
+                stocks = fmp.fetch_stock_list()
+                if stocks:
+                    df = pd.DataFrame(stocks)
+                    if 'symbol' in df.columns:
+                        df = df[['symbol', 'name']].copy()
+
+                        # Filter out penny stocks (price < $1) if price data available
+                        if 'price' in pd.DataFrame(stocks).columns:
+                            prices = pd.DataFrame(stocks)['price']
+                            mask = prices.fillna(0) >= 1.0
+                            df = df[mask.values]
+
+                        logger.info(f"FMP universe: {len(df)} US stocks fetched")
+                        return df
+                else:
+                    logger.warning("FMP returned empty stock list. Trying Finnhub fallback...")
+            else:
+                logger.info("FMP API key not set. Trying Finnhub fallback for universe fetch...")
+
+            finnhub = FinnhubFetcher()
+            stocks = finnhub.fetch_us_stock_symbols()
+            if stocks:
+                df = pd.DataFrame(stocks)
+                if 'symbol' in df.columns and 'name' in df.columns:
+                    logger.info(f"Finnhub universe fallback: {len(df)} US stocks fetched")
+                    return df[['symbol', 'name']].copy()
+
+            logger.warning("Finnhub fallback returned empty stock list")
+            return pd.DataFrame()
         except Exception as e:
-            logger.error(f"Error fetching FMP stock list: {e}")
+            logger.error(f"Error fetching universe from FMP/Finnhub: {e}")
             return pd.DataFrame()
 
     def _fetch_nasdaq_listed(self) -> pd.DataFrame:

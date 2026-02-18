@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 class FredFetcher:
     """Fetch economic data from FRED."""
 
+    _missing_api_key_warned = False
+    _macro_fallback_warned = False
+
+    CANONICAL_MACRO_SERIES = {
+        "fed_funds": {"series_id": "FEDFUNDS", "label": "Fed Funds", "unit": "%"},
+        "cpi_yoy": {"series_id": "CPIAUCSL", "label": "CPI YoY", "unit": "%", "units": "pc1"},
+        "unemployment_rate": {"series_id": "UNRATE", "label": "Unemployment", "unit": "%"},
+        "treasury_2y": {"series_id": "DGS2", "label": "2Y Treasury", "unit": "%"},
+        "treasury_10y": {"series_id": "DGS10", "label": "10Y Treasury", "unit": "%"},
+        "recession_proxy": {"series_id": "USREC", "label": "NBER Recession Proxy", "unit": "binary"},
+    }
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -45,17 +57,27 @@ class FredFetcher:
         self.api_key = api_key or os.getenv('FRED_API_KEY')
 
         if not self.api_key:
-            logger.warning(
-                "No FRED API key found! Set FRED_API_KEY environment variable.\n"
-                "Get a free key at: https://fred.stlouisfed.org/docs/api/api_key.html"
-            )
+            self._warn_missing_api_key_once()
+
 
         self.base_url = "https://api.stlouisfed.org/fred"
         self.cache_dir = Path(cache_dir) / "fred"
+        self.macro_cache_path = Path(cache_dir) / "fred_macro.json"
         self.cache_ttl_hours = cache_ttl_hours
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.macro_cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("FredFetcher initialized")
+
+    def _warn_missing_api_key_once(self) -> None:
+        """Emit a single explicit warning when FRED key is not configured."""
+        if self.api_key or FredFetcher._missing_api_key_warned:
+            return
+        logger.warning(
+            "FRED_API_KEY is missing. Macro bundle will use cached values from "
+            "data/cache/fred_macro.json when present, otherwise a constrained fallback template."
+        )
+        FredFetcher._missing_api_key_warned = True
 
     def _fetch(
         self,
@@ -275,6 +297,148 @@ class FredFetcher:
             except (TypeError, ValueError):
                 continue
         return None
+
+    @staticmethod
+    def _latest_observation(observations: List[Dict]) -> Optional[Dict[str, Any]]:
+        """Return latest valid observation with numeric value and metadata."""
+        for observation in reversed(observations):
+            value = observation.get("value")
+            if value in (None, "."):
+                continue
+            try:
+                return {
+                    "value": float(value),
+                    "date": observation.get("date"),
+                }
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @staticmethod
+    def _age_label_for_date(date_str: Optional[str]) -> str:
+        """Return a human-readable age label from observation date."""
+        if not date_str:
+            return "age unknown"
+        try:
+            obs_date = datetime.strptime(date_str, "%Y-%m-%d")
+            days = max((datetime.utcnow() - obs_date).days, 0)
+            return "fresh (<24h)" if days == 0 else f"{days}d old"
+        except ValueError:
+            return "age unknown"
+
+    def _save_macro_bundle_cache(self, bundle: Dict[str, Any]) -> None:
+        """Persist canonical macro bundle cache."""
+        try:
+            with open(self.macro_cache_path, "w", encoding="utf-8") as cache_file:
+                json.dump(bundle, cache_file, indent=2)
+        except Exception as exc:
+            logger.warning(f"Failed to persist macro bundle cache: {exc}")
+
+    def _load_macro_bundle_cache(self) -> Optional[Dict[str, Any]]:
+        """Load canonical macro bundle cache if available."""
+        if not self.macro_cache_path.exists():
+            return None
+        try:
+            with open(self.macro_cache_path, "r", encoding="utf-8") as cache_file:
+                return json.load(cache_file)
+        except Exception as exc:
+            logger.warning(f"Failed to load macro bundle cache: {exc}")
+            return None
+
+    def fetch_canonical_macro_bundle(self) -> Dict[str, Any]:
+        """Fetch a canonical macro bundle for newsletter macro/rates/risk sections."""
+        now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+        if not self.api_key:
+            self._warn_missing_api_key_once()
+            cached_bundle = self._load_macro_bundle_cache()
+            if cached_bundle:
+                cached_bundle["source"] = "cached"
+                cached_bundle["warning"] = (
+                    "FRED_API_KEY missing; rendering cached last-known macro values "
+                    "from data/cache/fred_macro.json."
+                )
+                return cached_bundle
+
+            if not FredFetcher._macro_fallback_warned:
+                logger.warning(
+                    "FRED macro cache unavailable and FRED_API_KEY missing; using constrained fallback macro template."
+                )
+                FredFetcher._macro_fallback_warned = True
+            return {
+                "fetched_at": now_iso,
+                "source": "fallback",
+                "warning": (
+                    "FRED_API_KEY missing and no cached macro bundle was found at "
+                    "data/cache/fred_macro.json."
+                ),
+                "fallback_template": {
+                    "macro_snapshot": [
+                        "Fed policy stance unavailable; assume neutral-to-restrictive until refreshed.",
+                        "Inflation and labor inputs unavailable; avoid directional macro overreach.",
+                    ],
+                    "rates_pulse": [
+                        "2Y/10Y curve data unavailable; prioritize reduced duration conviction.",
+                    ],
+                    "risk_regime": [
+                        "Recession proxy unavailable; maintain balanced risk with tighter stops.",
+                    ],
+                },
+                "indicators": {},
+                "derived": {},
+            }
+
+        indicators: Dict[str, Any] = {}
+        for key, cfg in self.CANONICAL_MACRO_SERIES.items():
+            observations = self.fetch_series_observations(
+                cfg["series_id"],
+                units=cfg.get("units", "lin"),
+                limit=6,
+                cache_ttl_hours=24,
+            )
+            latest = self._latest_observation(observations)
+            prev = self._latest_observation(observations[:-1]) if len(observations) > 1 else None
+            trend = "stable"
+            if latest and prev:
+                if latest["value"] > prev["value"]:
+                    trend = "up"
+                elif latest["value"] < prev["value"]:
+                    trend = "down"
+            indicators[key] = {
+                "label": cfg["label"],
+                "series_id": cfg["series_id"],
+                "value": latest["value"] if latest else None,
+                "previous": prev["value"] if prev else None,
+                "date": latest["date"] if latest else None,
+                "age_label": self._age_label_for_date(latest["date"] if latest else None),
+                "unit": cfg["unit"],
+                "trend": trend,
+            }
+
+        two_year = (indicators.get("treasury_2y") or {}).get("value")
+        ten_year = (indicators.get("treasury_10y") or {}).get("value")
+        spread = (ten_year - two_year) if isinstance(two_year, (int, float)) and isinstance(ten_year, (int, float)) else None
+        curve_regime = "unknown"
+        if spread is not None:
+            if spread < 0:
+                curve_regime = "inverted"
+            elif spread < 0.5:
+                curve_regime = "flat"
+            else:
+                curve_regime = "steep"
+
+        bundle = {
+            "fetched_at": now_iso,
+            "source": "live_fred",
+            "warning": "",
+            "indicators": indicators,
+            "derived": {
+                "spread_2s10s": spread,
+                "curve_regime": curve_regime,
+            },
+        }
+        self._save_macro_bundle_cache(bundle)
+        return bundle
 
     @staticmethod
     def _infer_trend(values: List[float]) -> str:

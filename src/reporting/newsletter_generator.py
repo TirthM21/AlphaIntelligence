@@ -445,6 +445,88 @@ class NewsletterGenerator:
         ]
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_macro_value(indicator: Dict) -> str:
+        value = indicator.get("value")
+        if value is None:
+            return "N/A"
+        unit = indicator.get("unit", "")
+        if unit == "%":
+            return f"{value:.2f}%"
+        if unit == "binary":
+            return "Recession" if value >= 0.5 else "Expansion"
+        return f"{value:.2f}"
+
+    def _build_macro_section_payload(self, bundle: Dict) -> Dict[str, List[str]]:
+        source = bundle.get("source", "fallback")
+        fetched_at = bundle.get("fetched_at", "unknown")
+        indicators = bundle.get("indicators", {})
+        derived = bundle.get("derived", {})
+
+        def line_for(key: str) -> str:
+            indicator = indicators.get(key, {})
+            label = indicator.get("label", key)
+            value = self._format_macro_value(indicator)
+            date = indicator.get("date", "unknown")
+            age = indicator.get("age_label", "age unknown")
+            trend = indicator.get("trend", "stable")
+            return f"- **{label}:** {value} ({trend}, obs {date}, {age})"
+
+        lines = {
+            "meta": [
+                f"- **Macro Bundle Source:** `{source}`",
+                f"- **Bundle Timestamp (UTC):** {fetched_at}",
+            ],
+            "snapshot": [],
+            "rates": [],
+            "risk": [],
+            "warning": [],
+        }
+
+        warning = bundle.get("warning")
+        if warning:
+            lines["warning"].append(f"- ⚠️ {warning}")
+
+        if source == "fallback":
+            fallback = bundle.get("fallback_template", {})
+            lines["snapshot"] = [f"- {msg}" for msg in fallback.get("macro_snapshot", [])]
+            lines["rates"] = [f"- {msg}" for msg in fallback.get("rates_pulse", [])]
+            lines["risk"] = [f"- {msg}" for msg in fallback.get("risk_regime", [])]
+            return lines
+
+        lines["snapshot"] = [
+            line_for("fed_funds"),
+            line_for("cpi_yoy"),
+            line_for("unemployment_rate"),
+            line_for("recession_proxy"),
+        ]
+
+        spread = derived.get("spread_2s10s")
+        curve = derived.get("curve_regime", "unknown")
+        spread_txt = f"{spread:.2f}pp" if isinstance(spread, (int, float)) else "N/A"
+        lines["rates"] = [
+            line_for("treasury_2y"),
+            line_for("treasury_10y"),
+            f"- **2s10s Spread:** {spread_txt} ({curve} curve)",
+        ]
+
+        recession = (indicators.get("recession_proxy") or {}).get("value")
+        labor_trend = (indicators.get("unemployment_rate") or {}).get("trend", "stable")
+        inflation_trend = (indicators.get("cpi_yoy") or {}).get("trend", "stable")
+        risk_regime = "Balanced"
+        if recession and recession >= 0.5:
+            risk_regime = "Defensive"
+        elif curve == "steep" and labor_trend in {"down", "stable"} and inflation_trend != "up":
+            risk_regime = "Constructive"
+        elif curve == "inverted" or labor_trend == "up":
+            risk_regime = "Cautious"
+
+        lines["risk"] = [
+            f"- **Risk Regime:** {risk_regime}",
+            f"- **Curve/Labor/Inflation Read:** curve={curve}, labor trend={labor_trend}, inflation trend={inflation_trend}.",
+        ]
+        return lines
+
     def _run_newsletter_qc(self, markdown: str) -> Tuple[bool, Dict[str, float], List[str]]:
         """Validate newsletter structure and source quality before final output."""
         errors: List[str] = []
@@ -659,9 +741,6 @@ class NewsletterGenerator:
         recent_runs = state.get("runs", [])[-5:]
 
         # 1. Initialize data containers
-        econ_data = {}
-        macro_panel = {}
-        macro_panel_fallback = ""
         market_news = []
         portfolio = self.load_portfolio()
         portfolio_tickers = [p['ticker'] for p in portfolio]
@@ -726,118 +805,26 @@ class NewsletterGenerator:
             except Exception as e:
                 logger.error(f"Section {plan.section_name} fallback provider {plan.fallback_provider} failed: {e}")
 
-            section_status[plan.section_name] = {"status": "failed", "provider": "none"}
-            return None
-
-        def _diag_renderer(data: Any) -> str:
-            if isinstance(data, list):
-                return f"items={len(data)}"
-            if isinstance(data, dict):
-                return f"keys={len(data)}"
-            return "items=0"
-
-        def _fetch_macro_rates(provider: str) -> Dict[str, Any]:
-            if provider == "fred":
-                payload: Dict[str, Any] = {"econ_data": {}, "macro_panel": {}, "macro_panel_fallback": ""}
-                macro_indicators = {
-                    'GDP': 'GDP',
-                    'CPI': 'CPIAUCSL',
-                    'Unemployment': 'UNRATE',
-                    'Fed Funds': 'FEDFUNDS'
-                }
-                if self.fred.api_key:
-                    for name, series_id in macro_indicators.items():
-                        obs = self.fred.fetch_series_observations(series_id, limit=2)
-                        if not obs:
-                            continue
-                        latest = obs[-1]
-                        prev = obs[-2] if len(obs) > 1 else {}
-                        val = latest.get('value', '0')
-                        p_val = prev.get('value', '0')
-                        try:
-                            val_f = float(val) if val != '.' else 0
-                            p_val_f = float(p_val) if p_val != '.' else 0
-                            trend = "Up" if val_f > p_val_f else "Down"
-                        except (TypeError, ValueError):
-                            trend = "Stable"
-                        payload["econ_data"][name] = {
-                            'current': val,
-                            'date': latest.get('date'),
-                            'previous': p_val,
-                            'trend': trend
-                        }
-                payload["macro_panel"] = self.fred.get_fixed_macro_panel()
-                if not self.fred.api_key:
-                    payload["macro_panel_fallback"] = (
-                        "FRED API key missing: macro panel uses fallback narrative. "
-                        "Set FRED_API_KEY for live regime reads."
-                    )
-                return payload
-
-            if provider == "fmp" and fmp_fetcher:
-                return {
-                    "econ_data": fmp_fetcher.fetch_macro_indicators(),
-                    "macro_panel": {},
-                    "macro_panel_fallback": "Using FMP macro fallback; FRED panel unavailable."
-                }
-            return {}
-
-        def _fetch_economic_calendar(provider: str) -> List[Dict]:
-            if provider == "fred":
-                releases = self.fred.fetch_releases(limit=8) if self.fred.api_key else []
-                return [{"event": r.get("name", "FRED Release"), "date": r.get("realtime_start", ""), "time": "TBD", "impact": "Medium"} for r in releases]
-            if provider == "fmp" and fmp_fetcher:
-                return fmp_fetcher.fetch_economic_calendar(days_forward=3)
-            return []
-
-        def _fetch_market_headlines(provider: str) -> List[Dict]:
-            rows: List[Dict] = []
-            if provider == "finnhub" and self.finnhub.api_key:
-                for item in self.finnhub.fetch_market_news(category='general')[:8]:
-                    rows.append({
-                        'title': item.get('headline'),
-                        'url': item.get('url'),
-                        'site': item.get('source', 'Finnhub'),
-                        'summary': item.get('summary', '')
-                    })
-            elif provider == "fmp" and fmp_fetcher:
-                for item in fmp_fetcher.fetch_market_news(limit=10):
-                    rows.append({
-                        'title': item.get('title'),
-                        'url': item.get('url'),
-                        'site': 'FMP News',
-                        'summary': item.get('text', '')
-                    })
-            return rows
-
-        def _fetch_market_sentiment(provider: str) -> Dict:
-            if provider == "finnhub" and self.finnhub.api_key:
-                return self.finnhub.fetch_market_sentiment_proxy()
-            return {}
-
-        def _fetch_earnings_calendar(provider: str) -> List[Dict]:
-            if provider == "finnhub" and self.finnhub.api_key:
-                return self.finnhub.fetch_earnings_calendar(days_forward=5)
-            if provider == "fmp" and fmp_fetcher:
-                proxy = fmp_fetcher.fetch_market_news(limit=8)
-                return [{"symbol": n.get("symbol", "N/A"), "date": n.get("publishedDate", ""), "hour": "TBD"} for n in proxy]
-            return []
-
-        def _fetch_sector_performance(provider: str) -> List[Dict]:
-            if provider == "fmp" and fmp_fetcher:
-                return fmp_fetcher.fetch_sector_performance()
-            if provider == "finnhub" and self.finnhub.api_key:
-                snapshot = self.finnhub.fetch_major_index_snapshot()
-                return [{"sector": symbol, "changesPercentage": f"{data.get('change_pct', 0)}%"} for symbol, data in snapshot.items()]
-            return []
-
-        def _fetch_movers(provider: str) -> List[Dict]:
-            if provider == "fmp" and fmp_fetcher:
-                proxy_news = fmp_fetcher.fetch_market_news(limit=6)
-                return [{"symbol": n.get('symbol', 'N/A'), "change_pct": 0.0, "reason": n.get('title', 'FMP mover proxy')} for n in proxy_news]
-            if provider == "finnhub" and self.finnhub.api_key:
-                return self.finnhub.fetch_notable_movers(limit=6)
-            return []
+        # Canonical FRED macro bundle for macro/rates/risk sections
+        macro_bundle = {}
+        macro_render = {"meta": [], "snapshot": [], "rates": [], "risk": [], "warning": []}
+        try:
+            logger.info("Fetching canonical FRED macro bundle...")
+            macro_bundle = self.fred.fetch_canonical_macro_bundle()
+            macro_render = self._build_macro_section_payload(macro_bundle)
+        except Exception as e:
+            logger.error(f"FRED bundle fetch failed: {e}")
+            macro_bundle = {
+                "source": "fallback",
+                "fetched_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "warning": "Canonical macro bundle failed to load.",
+                "fallback_template": {
+                    "macro_snapshot": ["Macro inputs unavailable; maintain neutral positioning."],
+                    "rates_pulse": ["Rates inputs unavailable; avoid aggressive duration bets."],
+                    "risk_regime": ["Risk regime unavailable; tighten risk controls."],
+                },
+            }
+            macro_render = self._build_macro_section_payload(macro_bundle)
 
         def _fetch_fundamentals_snippets(provider: str) -> List[Dict]:
             snippets: List[Dict] = []
@@ -1175,38 +1162,24 @@ class NewsletterGenerator:
                 content.append(f"- **{label}:** {'▲' if move > 0 else '▼'} {move:+.2f}%")
         content.append("")
 
-        # --- SECTION: MACRO PULSE (NEW: FRED DATA) ---
-        if econ_data:
-            content.append("### Macro Pulse (FRED)")
-            for name, data in econ_data.items():
-                trend_icon = "▲" if data['trend'] == "Up" else "▼" if data['trend'] == "Down" else "•"
-                content.append(f"- **{name}:** {data['current']} ({trend_icon} from {data['previous']})")
-            content.append("")
+        # --- SECTION: CANONICAL MACRO BUNDLE ---
+        content.append("### Macro Snapshot")
+        content.extend(macro_render.get("meta", []))
+        content.extend(macro_render.get("warning", []))
+        content.extend(macro_render.get("snapshot", []))
+        content.append("")
 
-        if macro_panel:
-            content.append("### Fixed Macro Panel")
-            for panel in macro_panel.values():
-                content.append(f"- **{panel.get('name', 'Macro Signal')}:** {panel.get('summary', 'No summary available.')}")
-            content.append("")
+        content.append("### Rates Pulse")
+        content.extend(macro_render.get("meta", []))
+        content.extend(macro_render.get("warning", []))
+        content.extend(macro_render.get("rates", []))
+        content.append("")
 
-        if macro_panel_fallback:
-            content.append(f"- *{macro_panel_fallback}*")
-            content.append("")
-
-        if macro_panel:
-            spread_text = (macro_panel.get('yield_spread_regime') or {}).get('summary', '').lower()
-            labor_text = (macro_panel.get('labor_stress_proxy') or {}).get('summary', '').lower()
-            inflation_text = (macro_panel.get('inflation_momentum_proxy') or {}).get('summary', '').lower()
-
-            risk_bias = "Risk-on" if "steep" in spread_text and "improving" in labor_text else "Risk-off"
-            inflation_bias = "inflation cooling" if "cooling" in inflation_text else "inflation pressure"
-            labor_bias = "labor conditions firm" if "improving" in labor_text else "labor conditions mixed"
-
-            content.append("### Macro Regime")
-            content.append(f"- **Regime Bias:** {risk_bias} context from rates-curve and labor signals.")
-            content.append(f"- **Inflation Read:** {inflation_bias}; monitor duration/real-rate sensitivity.")
-            content.append(f"- **Growth/Labor Read:** {labor_bias}; position sizing should respect event volatility.")
-            content.append("")
+        content.append("### Risk Regime")
+        content.extend(macro_render.get("meta", []))
+        content.extend(macro_render.get("warning", []))
+        content.extend(macro_render.get("risk", []))
+        content.append("")
 
         # --- SECTION: SECTOR PERFORMANCE ---
         if sector_perf:
@@ -1397,11 +1370,11 @@ class NewsletterGenerator:
                     vol_msg = "Volatility regime remains elevated; risk budgeting should stay defensive until breadth improves."
                 content.append(f"- {vol_msg}")
             elif section_name == "Rates Pulse":
-                fed = econ_data.get('Fed Funds', {})
-                if fed:
-                    content.append(f"- Policy backdrop: Fed Funds at **{fed.get('current')}** (prev {fed.get('previous')}).")
+                if macro_render.get("rates"):
+                    content.append("- Optional rates addendum sourced from canonical macro bundle:")
+                    content.extend(macro_render.get("rates", [])[:2])
                 else:
-                    content.append("- Treasury-rate direction is mixed; monitor real-yield sensitivity in duration assets.")
+                    content.append("- Canonical macro bundle unavailable; rates addendum suppressed.")
             elif section_name == "Earnings Spotlight":
                 if earnings_cal:
                     for event in earnings_cal[:3]:

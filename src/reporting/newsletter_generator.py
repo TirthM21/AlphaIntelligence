@@ -865,25 +865,33 @@ class NewsletterGenerator:
         if fmp_fetcher:
             try:
                 # FMP used for DAILY news as requested
-                logger.info("Fetching FMP daily market news...")
-                market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
-                if market_news_fmp:
-                    for item in market_news_fmp:
-                        market_news.append({
-                            'title': item.get('title'),
-                            'url': item.get('url'),
-                            'site': 'FMP News',
-                            'summary': item.get('text', ''),
-                            'datetime': item.get('publishedDate')
-                        })
+                if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('stock_news'):
+                    logger.warning("FMP cooldown active for market news section; switching to fallback provider.")
+                else:
+                    logger.info("Fetching FMP daily market news...")
+                    market_news_fmp = self.fetcher.fmp_fetcher.fetch_market_news(limit=10)
+                    if market_news_fmp:
+                        for item in market_news_fmp:
+                            market_news.append({
+                                'title': item.get('title'),
+                                'url': item.get('url'),
+                                'site': 'FMP News',
+                                'summary': item.get('text', '')
+                            })
                 
                 # FMP for economic calendar if not already populated
                 if not econ_calendar:
-                    econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
+                    if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('economic_calendar'):
+                        logger.warning("FMP cooldown active for economic calendar; skipping to existing/fallback sources.")
+                    else:
+                        econ_calendar = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=3)
                 
                 # FMP for portfolio news DAILY 
                 if not portfolio_news and portfolio_tickers:
-                    portfolio_news = fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
+                    if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('stock_news'):
+                        logger.warning("FMP cooldown active for portfolio news; switching to fallback provider.")
+                    else:
+                        portfolio_news = self.fetcher.fmp_fetcher.fetch_stock_news(portfolio_tickers, limit=3)
             except Exception as e:
                 logger.error(f"Failed to fetch FMP supplemental data: {e}")
 
@@ -951,11 +959,13 @@ class NewsletterGenerator:
         index_perf = {}
         if sector_perf:
             try:
-                sector_perf = sorted(
-                    sector_perf,
-                    key=lambda x: float(str(x.get('changesPercentage', '0')).replace('%', '')),
-                    reverse=True
-                )
+                if self.fetcher.fmp_fetcher.is_endpoint_cooldown_active('sector-performance'):
+                    logger.warning("FMP cooldown active for sector performance section; using fallback providers.")
+                else:
+                    sector_perf = self.fetcher.fmp_fetcher.fetch_sector_performance()
+                # Sort sectors by performance
+                if sector_perf:
+                    sector_perf = sorted(sector_perf, key=lambda x: float(x.get('changesPercentage', '0').replace('%','')), reverse=True)
             except Exception as e:
                 logger.warning(f"Sector perf sort failed: {e}")
         

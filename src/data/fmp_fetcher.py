@@ -13,10 +13,14 @@ Get free API key: https://site.financialmodelingprep.com/
 import logging
 import os
 import pickle
+import random
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+
+import hashlib
+import json
 
 import requests
 from dotenv import load_dotenv
@@ -52,12 +56,180 @@ class FMPFetcher:
         self.base_url = "https://financialmodelingprep.com/stable"
         self.cache_dir = Path(cache_dir) / "fmp"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.state_path = Path("./data/state/fmp_usage.json")
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Bandwidth tracking (30-day limit: 20 GB)
         self.bandwidth_used = 0
         self.bandwidth_limit = 20 * 1024 * 1024 * 1024  # 20 GB in bytes
+        self.cooldown_seconds = 120
+        self.max_retry_attempts = 4
+
+        self.usage_state = self._load_usage_state()
+        self.bandwidth_used = int(self.usage_state.get('bandwidth_used', 0))
 
         logger.info("FMPFetcher initialized")
+
+    def _load_usage_state(self) -> Dict[str, any]:
+        """Load persisted usage state from local JSON store."""
+        default_state = {
+            'attempted_calls': 0,
+            'successful_calls': 0,
+            'throttled_calls': 0,
+            'cache_hits': 0,
+            'cache_misses': 0,
+            'bandwidth_used': 0,
+            'endpoint_cooldowns': {},
+            'request_log': []
+        }
+        if not self.state_path.exists():
+            return default_state
+
+        try:
+            with open(self.state_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            default_state.update(data)
+            return default_state
+        except Exception as e:
+            logger.warning(f"Failed to load FMP usage state, using defaults: {e}")
+            return default_state
+
+    def _save_usage_state(self):
+        """Persist usage state to disk."""
+        try:
+            with open(self.state_path, 'w', encoding='utf-8') as f:
+                json.dump(self.usage_state, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to persist FMP usage state: {e}")
+
+    def _build_request_key(self, endpoint: str, params: Optional[Dict] = None) -> str:
+        """Build stable request key used for cache/cooldown tracking."""
+        param_dict = params.copy() if params else {}
+        param_dict.pop('apikey', None)
+        stable_params = json.dumps(param_dict, sort_keys=True)
+        return f"{endpoint}|{stable_params}"
+
+    def _record_request_event(
+        self,
+        endpoint: str,
+        request_key: str,
+        status_code: Optional[int],
+        cache_status: str,
+        note: str = ""
+    ):
+        """Record endpoint-level request telemetry."""
+        log = self.usage_state.setdefault('request_log', [])
+        log.append({
+            'timestamp': datetime.now().isoformat(),
+            'endpoint': endpoint,
+            'request_key': request_key,
+            'status_code': status_code,
+            'cache': cache_status,
+            'note': note
+        })
+        # Keep state file lightweight
+        self.usage_state['request_log'] = log[-200:]
+        self._save_usage_state()
+
+    def is_cooldown_active(self, endpoint: str, params: Optional[Dict] = None) -> bool:
+        """Return True when endpoint+params is currently in cooldown."""
+        request_key = self._build_request_key(endpoint, params)
+        cooldowns = self.usage_state.get('endpoint_cooldowns', {})
+        until_raw = cooldowns.get(request_key)
+        if not until_raw:
+            return False
+        try:
+            return datetime.now() < datetime.fromisoformat(until_raw)
+        except ValueError:
+            return False
+
+    def is_endpoint_cooldown_active(self, endpoint: str) -> bool:
+        """Return True when any request variant for an endpoint is in cooldown."""
+        cooldowns = self.usage_state.get('endpoint_cooldowns', {})
+        now = datetime.now()
+        for request_key, until_raw in cooldowns.items():
+            if not request_key.startswith(f"{endpoint}|"):
+                continue
+            try:
+                if now < datetime.fromisoformat(until_raw):
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    def _request_json(
+        self,
+        endpoint: str,
+        params: Optional[Dict] = None,
+        timeout: int = 10,
+        full_url: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Centralized HTTP request wrapper with cooldown + retry telemetry."""
+        params = params.copy() if params else {}
+        request_key = self._build_request_key(endpoint, params)
+
+        # Short-circuit when endpoint is cooling down
+        cooldowns = self.usage_state.setdefault('endpoint_cooldowns', {})
+        cooldown_until_raw = cooldowns.get(request_key)
+        if cooldown_until_raw:
+            try:
+                cooldown_until = datetime.fromisoformat(cooldown_until_raw)
+                if datetime.now() < cooldown_until:
+                    self.usage_state['attempted_calls'] += 1
+                    self.usage_state['throttled_calls'] += 1
+                    self._record_request_event(endpoint, request_key, 429, 'miss', 'cooldown_short_circuit')
+                    logger.warning(f"FMP cooldown active for {endpoint}; using fallback path.")
+                    return None
+            except ValueError:
+                pass
+
+        if not self.api_key:
+            logger.error("Cannot fetch without API key")
+            return None
+
+        params['apikey'] = self.api_key
+        url = full_url or f"{self.base_url}/{endpoint}"
+
+        for attempt in range(self.max_retry_attempts):
+            self.usage_state['attempted_calls'] += 1
+            try:
+                # Rate limiting baseline
+                time.sleep(0.1)
+                response = requests.get(url, params=params, timeout=timeout)
+                status_code = response.status_code
+
+                if status_code == 429:
+                    self.usage_state['throttled_calls'] += 1
+                    delay = (2 ** attempt) + random.uniform(0, 0.5)
+                    cooldown_until = datetime.now() + timedelta(seconds=max(self.cooldown_seconds, int(delay)))
+                    cooldowns[request_key] = cooldown_until.isoformat()
+                    self._record_request_event(endpoint, request_key, 429, 'miss', f'retry_in_{delay:.2f}s')
+                    logger.warning(
+                        f"FMP returned 429 for {endpoint} (attempt {attempt + 1}/{self.max_retry_attempts}); "
+                        f"backing off {delay:.2f}s."
+                    )
+                    time.sleep(delay)
+                    continue
+
+                if status_code == 403:
+                    msg = response.json().get('Error Message', '') if response.text else 'Forbidden'
+                    self._record_request_event(endpoint, request_key, 403, 'miss', msg)
+                    logger.error(f"FMP API 403 Error: {msg}. (Endpoint: {endpoint})")
+                    return {'__request_error__': True, 'status': 403, 'msg': msg}
+
+                response.raise_for_status()
+                self.bandwidth_used += len(response.content)
+                self.usage_state['bandwidth_used'] = self.bandwidth_used
+                self.usage_state['successful_calls'] += 1
+                cooldowns.pop(request_key, None)
+                self._record_request_event(endpoint, request_key, status_code, 'miss', 'success')
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                self._record_request_event(endpoint, request_key, None, 'miss', f'error:{e}')
+                logger.error(f"Error fetching from FMP ({endpoint}): {e}")
+                break
+
+        return None
 
     def _get_cache_path(self, ticker: str, endpoint: str) -> Path:
         """Get cache file path."""
@@ -126,23 +298,15 @@ class FMPFetcher:
         Returns:
             JSON response or None
         """
-        if not self.api_key:
-            logger.error("Cannot fetch without API key")
-            return None
-
         # 1. Check Disk Cache
-        import hashlib
-        import json
-        
-        # Sort params to ensure stable hash (and handle None)
         param_dict = params.copy() if params else {}
-        # Ensure 'apikey' is NEVER in the cache key
-        if 'apikey' in param_dict: del param_dict['apikey']
-        
+        param_dict.pop('apikey', None)
+
         stable_params = json.dumps(param_dict, sort_keys=True)
         param_hash = hashlib.md5(stable_params.encode()).hexdigest()[:10]
         cache_key = f"{endpoint.replace('/', '_')}_{param_hash}"
         cache_path = self.cache_dir / f"{cache_key}.pkl"
+        request_key = self._build_request_key(endpoint, param_dict)
 
         # Cache duration: 30 days for fundamentals, 24h for news/others
         if cache_path.exists():
@@ -179,48 +343,39 @@ class FMPFetcher:
                 if isinstance(cached_data, dict) and cached_data.get('__cached_error__'):
                     if datetime.now() - mtime < error_duration:
                         logger.warning(f"FMP CACHE HIT (Error): {endpoint} - Skipping to save limit.")
+                        self.usage_state['cache_hits'] += 1
+                        self._record_request_event(endpoint, request_key, cached_data.get('status'), 'hit', 'cached_error')
                         return None
                 elif datetime.now() - mtime < success_duration:
                     logger.info(f"FMP CACHE HIT ({'Monthly' if is_fundamental else 'Daily'}): {endpoint}")
+                    self.usage_state['cache_hits'] += 1
+                    self._record_request_event(endpoint, request_key, 200, 'hit', 'cached_success')
                     return cached_data
             except Exception as e:
                 logger.warning(f"Failed to read cache for {endpoint}: {e}")
 
         logger.info(f"FMP CACHE MISS: Fetching {endpoint} from API...")
+        self.usage_state['cache_misses'] += 1
+        self._record_request_event(endpoint, request_key, None, 'miss', 'cache_miss')
 
         # 2. Fetch from API if not cached or expired
+        data = self._request_json(endpoint, params=param_dict, timeout=10)
         try:
-            # Add API key to params
-            params = params or {}
-            params['apikey'] = self.api_key
-
-            url = f"{self.base_url}/{endpoint}"
-
-            # Rate limiting - be respectful (10 req/sec)
-            time.sleep(0.1)
-
-            response = requests.get(url, params=params, timeout=10)
-            
-            if response.status_code == 403:
-                msg = response.json().get('Error Message', '') if response.text else 'Forbidden'
-                logger.error(f"FMP API 403 Error: {msg}. (Endpoint: {endpoint})")
-                
+            if isinstance(data, dict) and data.get('__request_error__') and data.get('status') == 403:
+                msg = data.get('msg', 'Forbidden')
                 # Cache the 403 error to avoid retrying this endpoint
                 try:
                     with open(cache_path, 'wb') as f:
                         pickle.dump({'__cached_error__': True, 'status': 403, 'msg': msg}, f)
                 except Exception as cache_err:
                     logger.warning(f"Failed to cache error for {endpoint}: {cache_err}")
-                
+
                 if "Special Endpoint" in msg or "Legacy Endpoint" in msg:
                     logger.warning("This endpoint requires a higher FMP plan tier or is no longer supported for this key. System will fallback to yfinance.")
                 return None
 
-            response.raise_for_status()
-
-            # Track bandwidth usage
-            response_size = len(response.content)
-            self.bandwidth_used += response_size
+            if data is None:
+                return None
 
             # Check bandwidth limit
             if self.bandwidth_used > self.bandwidth_limit:
@@ -229,8 +384,6 @@ class FMPFetcher:
                     f"Used: {self.bandwidth_used / 1024 / 1024:.1f} MB / "
                     f"{self.bandwidth_limit / 1024 / 1024 / 1024:.1f} GB"
                 )
-
-            data = response.json()
 
             # Check for error in response
             if isinstance(data, dict) and 'Error Message' in data:
@@ -246,7 +399,7 @@ class FMPFetcher:
 
             return data
 
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.error(f"Error fetching from FMP: {e}")
             return None
 
@@ -344,26 +497,16 @@ class FMPFetcher:
                 return pickle.load(f)
 
         # Insider trading is v4 endpoint
-        url = f"https://financialmodelingprep.com/api/v4/insider-trading"
+        url = "https://financialmodelingprep.com/api/v4/insider-trading"
         params = {'symbol': ticker, 'page': page}
-        
-        # Manually handle v4 request to override base fetch method slightly or just use params
-        if not self.api_key: return []
-        params['apikey'] = self.api_key
-        
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            self.bandwidth_used += len(response.content)
-            data = response.json()
-            
-            # Cache result
-            with open(cache_path, 'wb') as f:
-                pickle.dump(data, f)
-            return data
-        except Exception as e:
-            logger.error(f"Error fetching insider trading: {e}")
+        data = self._request_json('api_v4/insider-trading', params=params, timeout=10, full_url=url)
+        if not data:
             return []
+
+        # Cache result
+        with open(cache_path, 'wb') as f:
+            pickle.dump(data, f)
+        return data
 
     def fetch_economic_data(self) -> Dict[str, any]:
         """Fetch key economic indicators (CPI, GDP, Unemployment, Interest Rate)."""
@@ -683,17 +826,15 @@ class FMPFetcher:
                 pass
         
         # Use v3 stock list endpoint
-        params = {'apikey': self.api_key}
+        params = {}
         if exchange:
             params['exchange'] = exchange
         
         try:
             url = "https://financialmodelingprep.com/api/v3/stock/list"
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            self.bandwidth_used += len(response.content)
-            
-            data = response.json()
+            data = self._request_json('api_v3/stock/list', params=params, timeout=30, full_url=url)
+            if not data:
+                return []
             if not isinstance(data, list):
                 logger.warning("FMP stock list returned unexpected format")
                 return []
@@ -744,4 +885,14 @@ class FMPFetcher:
             'bandwidth_pct_used': round(pct_used, 2),
             'is_earnings_season': self._is_earnings_season(),
             'cache_hours': 6 if self._is_earnings_season() else 168
+        }
+
+    def get_usage_stats(self) -> Dict[str, int]:
+        """Get persisted API usage counters."""
+        return {
+            'attempted_calls': int(self.usage_state.get('attempted_calls', 0)),
+            'successful_calls': int(self.usage_state.get('successful_calls', 0)),
+            'throttled_calls': int(self.usage_state.get('throttled_calls', 0)),
+            'cache_hits': int(self.usage_state.get('cache_hits', 0)),
+            'cache_misses': int(self.usage_state.get('cache_misses', 0)),
         }

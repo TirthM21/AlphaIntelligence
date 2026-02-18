@@ -663,7 +663,10 @@ def main():
             usage = fundamentals_fetcher.get_api_usage()
             logger.info("="*60)
             logger.info("FMP API USAGE")
-            logger.info(f"Calls used: {usage['fmp_calls_used']}/{usage['fmp_daily_limit']}")
+            logger.info(f"Attempted calls: {usage['fmp_attempted_calls']}/{usage['fmp_daily_limit']}")
+            logger.info(f"Successful calls: {usage['fmp_successful_calls']}")
+            logger.info(f"Throttled calls: {usage['fmp_throttled_calls']}")
+            logger.info(f"Cache hits: {usage['fmp_cache_hits']}")
             logger.info(f"Calls remaining: {usage['fmp_calls_remaining']}")
             if 'bandwidth_used_mb' in usage:
                 logger.info(f"Bandwidth used: {usage['bandwidth_used_mb']:.1f} MB / {usage['bandwidth_limit_gb']:.1f} GB ({usage['bandwidth_pct_used']:.1f}%)")

@@ -67,5 +67,36 @@ EMAIL_RECIPIENT=recipient@email.com
 | **Test Email Pipeline** | `python test_email_full.py` |
 
 
+
+
+## 📰 Newsletter Data Sources & Priority
+The newsletter pipeline now reads provider priority from `config.yaml` under `newsletter.providers` and enforces this order at runtime.
+
+```yaml
+newsletter:
+  providers:
+    macro: [fred, fmp]
+    headlines: [finnhub, marketaux, fmp]
+    sector_performance: [fmp, finnhub]
+    prices: [yfinance]
+```
+
+### Runtime behavior
+- Providers are tried in configured order per section (`macro`, `headlines`, `sector_performance`, `prices`).
+- Disabled or misconfigured providers (for example, missing API keys) are skipped automatically.
+- On startup, `NewsletterGenerator` logs explicit diagnostics that include:
+  - section fallback order,
+  - active providers detected for each section,
+  - providers missing required API keys.
+
+### API key requirements
+- `FINNHUB_API_KEY` for Finnhub
+- `MARKETAUX_API_KEY` for Marketaux
+- `FRED_API_KEY` for FRED
+- `FMP_API_KEY` for FMP
+- `yfinance` does not require an API key
+
+If a section has no active providers at runtime, newsletter generation continues with safe fallback content where possible.
+
 ---
 # AlphaIntelligence Capital

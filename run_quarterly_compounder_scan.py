@@ -818,6 +818,9 @@ class QuarterlyCompounderScan:
                     from src.notifications.email_notifier import EmailNotifier
                     notifier = EmailNotifier()
                     if notifier.enabled:
+                        quarter_date = datetime.now()
+                        q = (quarter_date.month - 1) // 3 + 1
+                        year = quarter_date.year
                         subject = f"🏛️ AlphaIntelligence Capital — Quarterly Compounder Report | Q{q} {year}"
                         notifier.send_newsletter(newsletter_path, scan_report_path=csv_path, subject=subject)
                         logger.info("✓ Newsletter sent via email")

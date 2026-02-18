@@ -3,7 +3,7 @@ import logging
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
@@ -23,14 +23,19 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SectionDataPlan:
-    section_name: str
-    primary_provider: str
-    fallback_provider: str
-    fetch_fn: Callable[[str], Any]
-    render_fn: Callable[[Any], str]
-    max_items: int
-    freshness_sla: str
+class SectionQCReport:
+    section_title: str
+    minimum_item_count: int
+    minimum_source_diversity: int
+    max_duplicate_topic_ratio: float
+    freshness_threshold: float
+    item_count: int
+    source_diversity: int
+    duplicate_topic_ratio: float
+    freshness_ratio: float
+    provider_attribution: Dict[str, int]
+    passed: bool
+    errors: List[str]
 
 class NewsletterGenerator:
     """Generates a high-quality, professional daily market newsletter."""
@@ -391,13 +396,146 @@ class NewsletterGenerator:
         if topic_total >= 2 and duplicate_ratio > max_duplicate_ratio:
             errors.append("duplicate_topic_ratio")
 
+        section_reports = self._run_section_qc_suite(markdown)
+        providers = self._extract_provider_attribution(markdown)
         report = {
             "heading_count": float(len(headings)),
             "duplicate_header_count": float(len(dupes)),
             "source_count": float(unique_sources),
             "duplicate_topic_ratio": round(duplicate_ratio, 3),
+            "provider_attribution": providers,
+            "section_qc": [asdict(r) for r in section_reports],
+            "section_qc_failures": float(sum(1 for r in section_reports if not r.passed)),
         }
         return len(errors) == 0, report, errors
+
+    def _build_section_qc_fallback(self, section_title: str, report: SectionQCReport) -> List[str]:
+        provider_bits = ", ".join(
+            f"{name}: {count}" for name, count in sorted(report.provider_attribution.items(), key=lambda x: (-x[1], x[0]))
+        ) or "No provider attribution available"
+        return [
+            f"## {section_title}",
+            (
+                "- Section quality checks flagged this section for low confidence "
+                f"({', '.join(report.errors) if report.errors else 'unknown_qc_issue'})."
+            ),
+            (
+                f"- QC snapshot: items={report.item_count}/{report.minimum_item_count}, "
+                f"source_diversity={report.source_diversity}/{report.minimum_source_diversity}, "
+                f"duplicate_topic_ratio={report.duplicate_topic_ratio:.2f}/{report.max_duplicate_topic_ratio:.2f}, "
+                f"freshness_ratio={report.freshness_ratio:.2f}/{report.freshness_threshold:.2f}."
+            ),
+            f"- Provider attribution: {provider_bits}.",
+            "- Action: defer to other sections while this feed is revalidated.",
+            "",
+        ]
+
+    def _extract_provider_attribution(self, section_markdown: str) -> Dict[str, int]:
+        providers: Dict[str, int] = {}
+        for provider in re.findall(r"—\s*\*([^*]+)\*", section_markdown):
+            key = provider.strip()
+            if not key:
+                continue
+            providers[key] = providers.get(key, 0) + 1
+        return providers
+
+    def _parse_sections(self, markdown: str) -> List[Tuple[str, str]]:
+        matches = list(re.finditer(r"^##\s+(.+)$", markdown, flags=re.MULTILINE))
+        sections: List[Tuple[str, str]] = []
+        for idx, match in enumerate(matches):
+            title = match.group(1).strip()
+            start = match.start()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(markdown)
+            body = markdown[start:end].rstrip() + "\n"
+            sections.append((title, body))
+        return sections
+
+    def _resolve_section_qc_thresholds(self, section_title: str) -> Tuple[int, int, float, float]:
+        normalized = section_title.lower()
+        if "top headlines" in normalized:
+            return 3, 2, 0.45, 0.5
+        if "portfolio-specific news" in normalized or "earnings radar" in normalized:
+            return 2, 1, 0.6, 0.3
+        if "today's events" in normalized or "new since yesterday" in normalized:
+            return 1, 1, 0.75, 0.2
+        return 1, 1, 0.75, 0.2
+
+    def _run_section_qc(self, section_title: str, section_markdown: str) -> SectionQCReport:
+        minimum_item_count, minimum_source_diversity, max_duplicate_topic_ratio, freshness_threshold = (
+            self._resolve_section_qc_thresholds(section_title)
+        )
+        item_titles = re.findall(r"^-\s+\[([^\]]+)\]", section_markdown, flags=re.MULTILINE)
+        if not item_titles:
+            item_titles = re.findall(r"^-\s+\*\*([^:*\n]+)", section_markdown, flags=re.MULTILINE)
+        item_count = len(item_titles)
+        provider_attribution = self._extract_provider_attribution(section_markdown)
+        source_diversity = len(provider_attribution)
+
+        topics = [self._normalize_topic(t) for t in item_titles if t.strip()]
+        topic_total = len(topics)
+        topic_unique = len(set(topics)) if topics else 0
+        duplicate_topic_ratio = 0.0
+        if topic_total:
+            duplicate_topic_ratio = max(0.0, (topic_total - topic_unique) / topic_total)
+        freshness_ratio = 0.0
+        if topic_total:
+            freshness_ratio = topic_unique / topic_total
+
+        errors: List[str] = []
+        if item_count < minimum_item_count:
+            errors.append("minimum_item_count")
+        if source_diversity < minimum_source_diversity:
+            errors.append("minimum_source_diversity")
+        if topic_total >= 2 and duplicate_topic_ratio > max_duplicate_topic_ratio:
+            errors.append("max_duplicate_topic_ratio")
+        if topic_total >= 1 and freshness_ratio < freshness_threshold:
+            errors.append("freshness_threshold")
+
+        return SectionQCReport(
+            section_title=section_title,
+            minimum_item_count=minimum_item_count,
+            minimum_source_diversity=minimum_source_diversity,
+            max_duplicate_topic_ratio=max_duplicate_topic_ratio,
+            freshness_threshold=freshness_threshold,
+            item_count=item_count,
+            source_diversity=source_diversity,
+            duplicate_topic_ratio=round(duplicate_topic_ratio, 3),
+            freshness_ratio=round(freshness_ratio, 3),
+            provider_attribution=provider_attribution,
+            passed=len(errors) == 0,
+            errors=errors,
+        )
+
+    def _run_section_qc_suite(self, markdown: str) -> List[SectionQCReport]:
+        section_reports: List[SectionQCReport] = []
+        for section_title, section_markdown in self._parse_sections(markdown):
+            section_reports.append(self._run_section_qc(section_title, section_markdown))
+        return section_reports
+
+    def _apply_section_qc_fallbacks(self, markdown: str) -> Tuple[str, List[SectionQCReport]]:
+        sections = self._parse_sections(markdown)
+        reports: List[SectionQCReport] = []
+        rebuilt_chunks: List[str] = []
+        for section_title, section_md in sections:
+            report = self._run_section_qc(section_title, section_md)
+            reports.append(report)
+            if report.passed:
+                rebuilt_chunks.append(section_md.rstrip())
+            else:
+                logger.warning(
+                    "Section QC failed for '%s' (%s): items=%s, source_diversity=%s, duplicate_topic_ratio=%.3f, freshness_ratio=%.3f",
+                    section_title,
+                    ",".join(report.errors),
+                    report.item_count,
+                    report.source_diversity,
+                    report.duplicate_topic_ratio,
+                    report.freshness_ratio,
+                )
+                rebuilt_chunks.append("\n".join(self._build_section_qc_fallback(section_title, report)).rstrip())
+        prefix = re.split(r"^##\s+.+$", markdown, maxsplit=1, flags=re.MULTILINE)[0].rstrip()
+        body = "\n\n".join(chunk for chunk in rebuilt_chunks if chunk.strip())
+        assembled = "\n\n".join(x for x in [prefix, body] if x).rstrip() + "\n"
+        return assembled, reports
 
     def generate_newsletter(self, 
                           market_status: Dict = None, 
@@ -1243,23 +1381,30 @@ class NewsletterGenerator:
                 prior_newsletter_md=prior_newsletter_md,
             )
 
+        final_md, section_qc_reports = self._apply_section_qc_fallbacks(final_md)
+
         qc_ok, qc_report, qc_errors = self._run_newsletter_qc(final_md)
+        qc_report["section_qc"] = [asdict(r) for r in section_qc_reports]
+        qc_report["section_qc_failures"] = float(sum(1 for r in section_qc_reports if not r.passed))
+        qc_report["provider_attribution"] = self._extract_provider_attribution(final_md)
         if not qc_ok:
             logger.warning(
-                "Newsletter QC failed (%s). Report: headings=%s, duplicate_headers=%s, sources=%s, duplicate_topic_ratio=%.3f. Falling back to safe template.",
+                "Newsletter QC failed (%s). Report: headings=%s, duplicate_headers=%s, sources=%s, duplicate_topic_ratio=%.3f, section_failures=%s. Falling back to safe template.",
                 ",".join(qc_errors),
                 int(qc_report.get("heading_count", 0)),
                 int(qc_report.get("duplicate_header_count", 0)),
                 int(qc_report.get("source_count", 0)),
                 qc_report.get("duplicate_topic_ratio", 0.0),
+                int(qc_report.get("section_qc_failures", 0)),
             )
             final_md = self._build_qc_fallback_template(date_str)
         else:
             logger.info(
-                "Newsletter QC passed: headings=%s, sources=%s, duplicate_topic_ratio=%.3f",
+                "Newsletter QC passed: headings=%s, sources=%s, duplicate_topic_ratio=%.3f, section_failures=%s",
                 int(qc_report.get("heading_count", 0)),
                 int(qc_report.get("source_count", 0)),
                 qc_report.get("duplicate_topic_ratio", 0.0),
+                int(qc_report.get("section_qc_failures", 0)),
             )
 
         diagnostics_lines = ["", "## Internal Diagnostics"]

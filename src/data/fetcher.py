@@ -178,10 +178,12 @@ class YahooFinanceFetcher:
         """
         cache_path = self._get_cache_path(ticker, 'fundamentals')
 
+        cached_data = None
+
         # Check cache first
-        if self._is_cache_valid(cache_path):
+        if cache_path.exists():
             cached_data = self._load_from_cache(cache_path)
-            if cached_data is not None:
+            if self._is_cache_valid(cache_path) and cached_data is not None:
                 return cached_data
 
         # Fetch from API
@@ -193,26 +195,11 @@ class YahooFinanceFetcher:
             return {}
 
         try:
-            info = stock.info
-
-            # Extract fundamental metrics with safe defaults
-            fundamentals = {
-                'ticker': ticker,
-                'name': info.get('longName', ticker),
-                'sector': info.get('sector', 'Unknown'),
-                'current_price': info.get('currentPrice') or info.get('regularMarketPrice'),
-                'week_52_high': info.get('fiftyTwoWeekHigh'),
-                'week_52_low': info.get('fiftyTwoWeekLow'),
-                'pe_ratio': info.get('trailingPE') or info.get('forwardPE'),
-                'pb_ratio': info.get('priceToBook'),
-                'debt_to_equity': info.get('debtToEquity'),
-                'free_cash_flow': info.get('freeCashflow'),
-                'market_cap': info.get('marketCap'),
-                'trailing_eps': info.get('trailingEps'),
-                'forward_eps': info.get('forwardEps'),
-                'dividend_yield': info.get('dividendYield'),
-                'fetch_date': datetime.now().isoformat()
-            }
+            fundamentals = self._build_or_update_fundamentals(
+                ticker=ticker,
+                stock=stock,
+                cached_data=cached_data if isinstance(cached_data, dict) else None
+            )
 
             # Log warnings for missing data
             missing_fields = [k for k, v in fundamentals.items() if v is None and k not in ['ticker', 'name', 'sector', 'fetch_date']]
@@ -228,6 +215,69 @@ class YahooFinanceFetcher:
         except Exception as e:
             logger.error(f"Error extracting fundamentals for {ticker}: {e}")
             return {}
+
+    def _build_or_update_fundamentals(
+        self,
+        ticker: str,
+        stock: yf.Ticker,
+        cached_data: Optional[Dict[str, any]] = None
+    ) -> Dict[str, any]:
+        """Build fundamentals snapshot, updating cached values incrementally when possible."""
+        fundamentals = dict(cached_data or {})
+
+        # Start with fast_info because it's cheaper than a full .info refresh.
+        try:
+            fast_info = stock.fast_info
+        except Exception as e:
+            logger.debug(f"{ticker}: fast_info unavailable: {e}")
+            fast_info = {}
+
+        price_now = fast_info.get('last_price') or fast_info.get('regular_market_price')
+        if price_now is not None:
+            fundamentals['current_price'] = price_now
+
+        week_52_high = fast_info.get('year_high')
+        week_52_low = fast_info.get('year_low')
+        if week_52_high is not None:
+            fundamentals['week_52_high'] = week_52_high
+        if week_52_low is not None:
+            fundamentals['week_52_low'] = week_52_low
+
+        market_cap = fast_info.get('market_cap')
+        if market_cap is not None:
+            fundamentals['market_cap'] = market_cap
+
+        # Pull full info only when needed to fill missing static fundamentals.
+        required_fields = [
+            'name', 'sector', 'pe_ratio', 'pb_ratio', 'debt_to_equity',
+            'free_cash_flow', 'trailing_eps', 'forward_eps', 'dividend_yield'
+        ]
+        missing_required = [field for field in required_fields if fundamentals.get(field) is None]
+
+        if missing_required:
+            info = stock.info
+            fundamentals.update({
+                'name': fundamentals.get('name') or info.get('longName', ticker),
+                'sector': fundamentals.get('sector') or info.get('sector', 'Unknown'),
+                'current_price': fundamentals.get('current_price') or info.get('currentPrice') or info.get('regularMarketPrice'),
+                'week_52_high': fundamentals.get('week_52_high') or info.get('fiftyTwoWeekHigh'),
+                'week_52_low': fundamentals.get('week_52_low') or info.get('fiftyTwoWeekLow'),
+                'pe_ratio': fundamentals.get('pe_ratio') or info.get('trailingPE') or info.get('forwardPE'),
+                'pb_ratio': fundamentals.get('pb_ratio') or info.get('priceToBook'),
+                'debt_to_equity': fundamentals.get('debt_to_equity') or info.get('debtToEquity'),
+                'free_cash_flow': fundamentals.get('free_cash_flow') or info.get('freeCashflow'),
+                'market_cap': fundamentals.get('market_cap') or info.get('marketCap'),
+                'trailing_eps': fundamentals.get('trailing_eps') or info.get('trailingEps'),
+                'forward_eps': fundamentals.get('forward_eps') or info.get('forwardEps'),
+                'dividend_yield': fundamentals.get('dividend_yield') or info.get('dividendYield')
+            })
+
+        fundamentals['ticker'] = ticker
+        fundamentals['fetch_date'] = datetime.now().isoformat()
+        fundamentals.setdefault('name', ticker)
+        fundamentals.setdefault('sector', 'Unknown')
+
+        return fundamentals
 
     def fetch_price_history(
         self,
@@ -257,11 +307,25 @@ class YahooFinanceFetcher:
         """
         cache_path = self._get_cache_path(ticker, f'prices_{period}_{interval}')
 
+        cached_data = None
+
         # Check cache first
-        if self._is_cache_valid(cache_path):
+        if cache_path.exists():
             cached_data = self._load_from_cache(cache_path)
-            if cached_data is not None and isinstance(cached_data, pd.DataFrame):
+            if self._is_cache_valid(cache_path) and cached_data is not None and isinstance(cached_data, pd.DataFrame):
                 return cached_data
+
+            if isinstance(cached_data, pd.DataFrame) and not cached_data.empty:
+                refreshed = self._refresh_price_history_incremental(
+                    ticker=ticker,
+                    period=period,
+                    interval=interval,
+                    cached_data=cached_data
+                )
+                if not refreshed.empty:
+                    self._save_to_cache(refreshed, cache_path)
+                    logger.info(f"Updated cached price history for {ticker} with incremental yfinance data")
+                    return refreshed
 
         # Fetch from API
         logger.info(f"Fetching price history for {ticker} (period={period}, interval={interval})")
@@ -300,6 +364,55 @@ class YahooFinanceFetcher:
 
         except Exception as e:
             logger.error(f"Error fetching price history for {ticker}: {e}")
+            return pd.DataFrame()
+
+    def _refresh_price_history_incremental(
+        self,
+        ticker: str,
+        period: str,
+        interval: str,
+        cached_data: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Update cached price history by requesting only the missing tail window."""
+        if cached_data.empty or not isinstance(cached_data.index, pd.DatetimeIndex):
+            return pd.DataFrame()
+
+        try:
+            last_cached_dt = pd.Timestamp(cached_data.index.max())
+            start_dt = (last_cached_dt - timedelta(days=7)).date().isoformat()
+
+            logger.info(
+                f"Incremental price refresh for {ticker} from {start_dt} (period={period}, interval={interval})"
+            )
+
+            stock = self._fetch_with_retry(ticker)
+            if stock is None:
+                return pd.DataFrame()
+
+            incremental = stock.history(start=start_dt, interval=interval)
+            if incremental.empty:
+                return cached_data
+
+            incremental.columns = [col.capitalize() for col in incremental.columns]
+            available_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+            incremental = incremental[[col for col in available_cols if col in incremental.columns]]
+
+            merged = pd.concat([cached_data, incremental])
+            merged = merged[~merged.index.duplicated(keep='last')]
+            merged = merged.sort_index()
+
+            # Trim oversized caches to requested period where supported.
+            period_to_days = {
+                '1mo': 31, '3mo': 93, '6mo': 186, '1y': 366, '2y': 731,
+                '5y': 1827, '10y': 3653
+            }
+            if period in period_to_days:
+                cutoff = pd.Timestamp.now(tz=merged.index.tz) - pd.Timedelta(days=period_to_days[period])
+                merged = merged[merged.index >= cutoff]
+
+            return merged
+        except Exception as e:
+            logger.warning(f"Failed incremental price refresh for {ticker}: {e}")
             return pd.DataFrame()
 
     def fetch_multiple(

@@ -152,9 +152,8 @@ class USStockUniverseFetcher:
             'ETF', 'FUND', 'TRUST', 'INDEX', 'PORTFOLIO',
             'SHARES', 'NOTES', 'BOND', 'TREASURY'
         ]
-        name_upper = df['name'].str.upper()
-        for keyword in etf_keywords:
-            df = df[~name_upper.str.contains(keyword, na=False)]
+        etf_pattern = '|'.join(etf_keywords)
+        df = df[~df['name'].str.upper().str.contains(etf_pattern, na=False)]
 
         filtered_count = len(df)
         logger.info(f"Filtered {initial_count - filtered_count} stocks, kept {filtered_count}")
@@ -185,17 +184,26 @@ class USStockUniverseFetcher:
 
         logger.info("Fetching fresh universe from exchanges...")
 
+        nasdaq_count = 0
+        other_count = 0
+        fmp_count = 0
+        source = "nasdaq_ftp"
+
         # Try FMP first (faster, more reliable, includes metadata)
         fmp_df = self._fetch_from_fmp()
         
         if not fmp_df.empty and len(fmp_df) > 1000:
             logger.info(f"Using FMP as primary universe source ({len(fmp_df)} stocks)")
             all_stocks = fmp_df
+            source = "fmp"
+            fmp_count = len(fmp_df)
         else:
             # Fallback to NASDAQ FTP
             logger.info("FMP unavailable or insufficient, falling back to NASDAQ FTP...")
             nasdaq_df = self._fetch_nasdaq_listed()
             other_df = self._fetch_other_listed()
+            nasdaq_count = len(nasdaq_df)
+            other_count = len(other_df)
             all_stocks = pd.concat([nasdaq_df, other_df], ignore_index=True)
 
         if all_stocks.empty:
@@ -219,8 +227,10 @@ class USStockUniverseFetcher:
             'fetch_date': datetime.now().isoformat(),
             'count': len(symbols),
             'metadata': {
-                'nasdaq_count': len(nasdaq_df),
-                'other_count': len(other_df),
+                'source': source,
+                'fmp_count': fmp_count,
+                'nasdaq_count': nasdaq_count,
+                'other_count': other_count,
                 'filtered_count': len(symbols)
             }
         }

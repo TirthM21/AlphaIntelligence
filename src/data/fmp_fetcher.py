@@ -80,6 +80,9 @@ class FMPFetcher:
             'cache_misses': 0,
             'bandwidth_used': 0,
             'endpoint_cooldowns': {},
+            'endpoint_global_cooldowns': {},
+            'endpoint_429_streaks': {},
+            'global_429_streak': 0,
             'request_log': []
         }
         if not self.state_path.exists():
@@ -157,6 +160,23 @@ class FMPFetcher:
                 continue
         return False
 
+    def _is_global_cooldown_active(self, endpoint: str) -> bool:
+        """Return True when global or endpoint-level quota cooldown is active."""
+        now = datetime.now()
+        global_cooldowns = self.usage_state.setdefault('endpoint_global_cooldowns', {})
+
+        for cooldown_key in ("__global__", endpoint):
+            until_raw = global_cooldowns.get(cooldown_key)
+            if not until_raw:
+                continue
+            try:
+                if now < datetime.fromisoformat(until_raw):
+                    return True
+            except ValueError:
+                continue
+
+        return False
+
     def _request_json(
         self,
         endpoint: str,
@@ -167,14 +187,41 @@ class FMPFetcher:
         """Centralized HTTP request wrapper with cooldown + retry telemetry."""
         params = params.copy() if params else {}
         request_key = self._build_request_key(endpoint, params)
+        global_cooldowns = self.usage_state.setdefault('endpoint_global_cooldowns', {})
+        endpoint_429_streaks = self.usage_state.setdefault('endpoint_429_streaks', {})
 
-        # Short-circuit when endpoint is cooling down
+        # Short-circuit when global/endpoint quota cooldown is active
+        now = datetime.now()
+        for cooldown_key in ("__global__", endpoint):
+            until_raw = global_cooldowns.get(cooldown_key)
+            if not until_raw:
+                continue
+            try:
+                cooldown_until = datetime.fromisoformat(until_raw)
+                if now < cooldown_until:
+                    self.usage_state['attempted_calls'] += 1
+                    self.usage_state['throttled_calls'] += 1
+                    self._record_request_event(
+                        endpoint,
+                        request_key,
+                        429,
+                        'miss',
+                        f'global_cooldown_short_circuit:{cooldown_key}'
+                    )
+                    logger.warning(
+                        f"FMP global cooldown active for {cooldown_key}; skipping HTTP call and using fallback path."
+                    )
+                    return None
+            except ValueError:
+                pass
+
+        # Short-circuit when endpoint+params variant is cooling down
         cooldowns = self.usage_state.setdefault('endpoint_cooldowns', {})
         cooldown_until_raw = cooldowns.get(request_key)
         if cooldown_until_raw:
             try:
                 cooldown_until = datetime.fromisoformat(cooldown_until_raw)
-                if datetime.now() < cooldown_until:
+                if now < cooldown_until:
                     self.usage_state['attempted_calls'] += 1
                     self.usage_state['throttled_calls'] += 1
                     self._record_request_event(endpoint, request_key, 429, 'miss', 'cooldown_short_circuit')
@@ -200,6 +247,48 @@ class FMPFetcher:
 
                 if status_code == 429:
                     self.usage_state['throttled_calls'] += 1
+                    endpoint_streak = int(endpoint_429_streaks.get(endpoint, 0)) + 1
+                    endpoint_429_streaks[endpoint] = endpoint_streak
+                    global_streak = int(self.usage_state.get('global_429_streak', 0)) + 1
+                    self.usage_state['global_429_streak'] = global_streak
+
+                    long_cooldown_minutes = 0
+                    if endpoint_streak >= 2:
+                        long_cooldown_minutes = 15
+                    if endpoint_streak >= 4:
+                        long_cooldown_minutes = 60
+
+                    if long_cooldown_minutes:
+                        cooldown_until = datetime.now() + timedelta(minutes=long_cooldown_minutes)
+                        global_cooldowns[endpoint] = cooldown_until.isoformat()
+                        self._record_request_event(
+                            endpoint,
+                            request_key,
+                            429,
+                            'miss',
+                            f'endpoint_global_cooldown_{long_cooldown_minutes}m'
+                        )
+                        logger.warning(
+                            f"FMP endpoint quota exhaustion suspected for {endpoint}; "
+                            f"setting {long_cooldown_minutes}m endpoint cooldown and returning fallback."
+                        )
+                        return None
+
+                    if global_streak >= 6:
+                        cooldown_until = datetime.now() + timedelta(minutes=30)
+                        global_cooldowns["__global__"] = cooldown_until.isoformat()
+                        self._record_request_event(
+                            endpoint,
+                            request_key,
+                            429,
+                            'miss',
+                            'global_quota_cooldown_30m'
+                        )
+                        logger.warning(
+                            "FMP global quota exhaustion suspected; setting 30m global cooldown and returning fallback."
+                        )
+                        return None
+
                     delay = (2 ** attempt) + random.uniform(0, 0.5)
                     cooldown_until = datetime.now() + timedelta(seconds=max(self.cooldown_seconds, int(delay)))
                     cooldowns[request_key] = cooldown_until.isoformat()
@@ -230,6 +319,8 @@ class FMPFetcher:
                 self.bandwidth_used += len(response.content)
                 self.usage_state['bandwidth_used'] = self.bandwidth_used
                 self.usage_state['successful_calls'] += 1
+                self.usage_state['global_429_streak'] = 0
+                endpoint_429_streaks[endpoint] = 0
                 cooldowns.pop(request_key, None)
                 self._record_request_event(endpoint, request_key, status_code, 'miss', 'success')
                 return response.json()

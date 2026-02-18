@@ -80,6 +80,14 @@ class LongTermFundamentalsFetcher:
             self.finnhub = None
             logger.info("Finnhub API key not found - fallback path will use yfinance")
 
+        finnhub_api_key = os.getenv('FINNHUB_API_KEY')
+        if finnhub_api_key:
+            from src.data.finnhub_fetcher import FinnhubFetcher
+            self.finnhub = FinnhubFetcher()
+        else:
+            self.finnhub = None
+            logger.info("FINNHUB_API_KEY not found - Finnhub fallback disabled")
+
         self.cache_dir = cache_dir
         self.cache_expiry_days = cache_expiry_days
 
@@ -119,7 +127,7 @@ class LongTermFundamentalsFetcher:
                 logger.info(f"Finnhub unavailable/incomplete, falling back to yfinance for {ticker}")
                 return self._fetch_from_yfinance(ticker)
 
-            fundamentals_data = self.fmp.fetch_comprehensive_fundamentals(ticker)
+            fundamentals_data = self.fmp.fetch_comprehensive_fundamentals(ticker, include_advanced=False)
 
             if not fundamentals_data:
                 logger.info(f"FMP unavailable/rate-limited, trying Finnhub for {ticker}")

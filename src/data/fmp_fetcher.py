@@ -204,6 +204,15 @@ class FMPFetcher:
                     cooldown_until = datetime.now() + timedelta(seconds=max(self.cooldown_seconds, int(delay)))
                     cooldowns[request_key] = cooldown_until.isoformat()
                     self._record_request_event(endpoint, request_key, 429, 'miss', f'retry_in_{delay:.2f}s')
+
+                    # Short-circuit after repeated throttling so upper layers can quickly use fallbacks.
+                    if attempt >= 1:
+                        logger.warning(
+                            f"FMP returned repeated 429s for {endpoint}; "
+                            "short-circuiting retries to allow provider fallback."
+                        )
+                        return None
+
                     logger.warning(
                         f"FMP returned 429 for {endpoint} (attempt {attempt + 1}/{self.max_retry_attempts}); "
                         f"backing off {delay:.2f}s."

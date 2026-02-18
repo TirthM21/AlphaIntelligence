@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.storage import StockDatabase
+from src.data.price_service import PriceService
 from .indicators import (
     calculate_rsi,
     calculate_sma,
@@ -400,6 +401,7 @@ def screen_candidates(
 
     Example:
         >>> from src.data.storage import StockDatabase
+from src.data.price_service import PriceService
         >>> db = StockDatabase()
         >>> results = screen_candidates(db, ["AAPL", "MSFT", "GOOGL"])
         >>> print(results.head())
@@ -419,6 +421,7 @@ def screen_candidates(
     logger.info(f"Screening {len(tickers_list)} candidates...")
 
     results = []
+    price_service = PriceService()
 
     for ticker in tickers_list:
         try:
@@ -453,10 +456,22 @@ def screen_candidates(
             # Detect support levels
             support_levels = detect_support_levels(price_history)
 
-            # Calculate technical indicators
-            current_price = fundamentals.get('current_price')
+            # Calculate technical indicators with authoritative yfinance prices
+            is_valid_payload, blocked_source = price_service.validate_price_payload_source(
+                fundamentals,
+                context=f"screening fundamentals {ticker}",
+            )
+            if not is_valid_payload:
+                logger.error(
+                    "Rejecting %s fundamentals payload in screener due to blocked price source=%s",
+                    ticker,
+                    blocked_source,
+                )
+                continue
+
+            current_price = price_service.get_current_price(ticker)
             if current_price is None or current_price <= 0:
-                logger.warning(f"Invalid current price for {ticker}")
+                logger.warning(f"Invalid current yfinance price for {ticker}")
                 continue
 
             # Calculate RSI

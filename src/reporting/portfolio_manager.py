@@ -14,9 +14,8 @@ import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
-import yfinance as yf
-
 from ..database.db_manager import DBManager
+from ..data.price_service import PriceService
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +29,7 @@ class PortfolioManager:
         self.report_dir = Path(report_dir)
         self.report_dir.mkdir(parents=True, exist_ok=True)
         self.db = DBManager()
+        self.price_service = PriceService()
 
     def generate_reports(self, buy_signals: List[Dict], sell_signals: List[Dict]):
         """Generate all required portfolio and allocation reports."""
@@ -102,9 +102,15 @@ class PortfolioManager:
         
         for s in buy_signals[:5]:
             ticker = s['ticker']
-            # Fallback to breakout_price if current_price not in signal dict
-            price = s.get('current_price') or s.get('breakout_price') or 0
-            
+            is_valid, source = self.price_service.validate_price_payload_source(
+                s,
+                context=f"allocation signal {ticker}",
+            )
+            if not is_valid:
+                logger.error("Rejecting allocation signal payload for %s due to blocked price source=%s", ticker, source)
+                continue
+
+            price = self.price_service.get_current_price(ticker) or 0
             if price <= 0:
                 continue
                 
@@ -173,16 +179,19 @@ class PortfolioManager:
         report.append("-" * 60)
 
         # Get current SPY price
-        spy = yf.Ticker("SPY")
-        current_spy = spy.history(period="1d")['Close'].iloc[-1]
+        current_spy = self.price_service.get_current_price("SPY") or 0
+        if current_spy <= 0:
+            logger.warning("Unable to fetch SPY price for alpha report")
+            return
 
         total_alpha = 0
         count = 0
 
         for r in perf_data:
             try:
-                stock = yf.Ticker(r['ticker'])
-                current_price = stock.history(period="1d")['Close'].iloc[-1]
+                current_price = self.price_service.get_current_price(r['ticker'])
+                if not current_price or current_price <= 0:
+                    continue
                 
                 stock_roi = (current_price - r['entry_price']) / r['entry_price'] * 100
                 spy_roi = (current_spy - r['spy_entry']) / r['spy_entry'] * 100
@@ -216,7 +225,15 @@ class PortfolioManager:
         for s in buy_signals[:10]: # Top 10 signals
             ticker = s['ticker']
             score = s['score']
-            entry_price = s.get('current_price') or s.get('breakout_price') or 0
+            is_valid, source = self.price_service.validate_price_payload_source(
+                s,
+                context=f"trade tracker signal {ticker}",
+            )
+            if not is_valid:
+                logger.error("Rejecting trade tracker signal payload for %s due to blocked price source=%s", ticker, source)
+                continue
+
+            entry_price = self.price_service.get_current_price(ticker) or 0
             stop_loss = s.get('stop_loss') or (entry_price * 0.93) # Default 7% stop if missing
             target_price = s.get('reward_target') or (entry_price * 1.20) # Default 20% target if missing
             rr_ratio = s.get('risk_reward_ratio') or 2.5

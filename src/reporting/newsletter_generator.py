@@ -13,6 +13,7 @@ from ..data.enhanced_fundamentals import EnhancedFundamentalsFetcher
 from ..data.finnhub_fetcher import FinnhubFetcher
 from ..data.marketaux_fetcher import MarketauxFetcher
 from ..data.fred_fetcher import FredFetcher
+from ..data.price_service import PriceService
 from ..ai.ai_agent import AIAgent
 from .visualizer import ChartArtifact, MarketVisualizer
 
@@ -32,8 +33,27 @@ class NewsletterGenerator:
         self.fred = FredFetcher()
         self.ai_agent = AIAgent()
         self.visualizer = MarketVisualizer()
+        self.price_service = PriceService()
         self.portfolio_path = Path(portfolio_path)
         self.newsletter_state_path = Path("./data/cache/newsletter_state.json")
+
+
+    def _authoritative_idea_price(self, idea: Dict) -> float:
+        """Resolve idea price from yfinance and reject blocked price sources."""
+        ticker = idea.get('ticker', '')
+        if not ticker:
+            return 0.0
+
+        is_valid, source = self.price_service.validate_price_payload_source(
+            idea,
+            context=f"newsletter idea {ticker}",
+        )
+        if not is_valid:
+            logger.error("Rejecting newsletter idea payload for %s due to blocked price source=%s", ticker, source)
+            return 0.0
+
+        price = self.price_service.get_current_price(ticker)
+        return float(price) if price and price > 0 else 0.0
 
     def _load_newsletter_state(self) -> Dict:
         if not self.newsletter_state_path.exists():
@@ -792,7 +812,7 @@ class NewsletterGenerator:
             for i, idea in enumerate(top_buys[:5], 1):
                 ticker = idea.get('ticker', 'N/A')
                 score = _safe_num(idea.get('score'))
-                price = _safe_num(idea.get('current_price'))
+                price = _safe_num(self._authoritative_idea_price(idea))
                 thesis = idea.get('fundamental_snapshot') or "Technical and fundamental signals are aligned."
                 content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
                 content.append(f"   - Thesis: {thesis}")
@@ -803,7 +823,7 @@ class NewsletterGenerator:
             for i, idea in enumerate(top_sells[:5], 1):
                 ticker = idea.get('ticker', 'N/A')
                 score = _safe_num(idea.get('score'))
-                price = _safe_num(idea.get('current_price'))
+                price = _safe_num(self._authoritative_idea_price(idea))
                 reason = idea.get('reason') or "Momentum deterioration or risk-control trigger."
                 content.append(f"{i}. **{ticker}** — Score {score:.1f} | Price ${price:.2f}")
                 content.append(f"   - Exit Logic: {reason}")

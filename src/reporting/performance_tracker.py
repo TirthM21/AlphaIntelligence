@@ -12,9 +12,8 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional
 
-import yfinance as yf
-
 from ..database.db_manager import DBManager
+from ..data.price_service import PriceService
 
 logger = logging.getLogger(__name__)
 
@@ -31,25 +30,22 @@ class PerformanceTracker:
         self.strategy = strategy
         self.db = DBManager()
         self._spy_price = None
+        self.price_service = PriceService()
 
     @property
     def spy_price(self) -> float:
         """Get current SPY price (cached per session)."""
         if self._spy_price is None:
             for attempt in range(3):
-                try:
-                    # Use a very small period to minimize data transfer
-                    spy = yf.Ticker("SPY")
-                    hist = spy.history(period="1d")
-                    if not hist.empty:
-                        self._spy_price = float(hist['Close'].iloc[-1])
-                        break
+                spy_price = self.price_service.get_current_price("SPY")
+                if spy_price and spy_price > 0:
+                    self._spy_price = float(spy_price)
+                    break
+                if attempt < 2:
                     time.sleep(1)
-                except Exception as e:
-                    if attempt == 2:
-                        logger.warning(f"Could not fetch SPY price after 3 attempts: {e}")
-                        self._spy_price = 0.0
-                    time.sleep(2)
+            if self._spy_price is None:
+                logger.warning("Could not fetch SPY price after 3 attempts")
+                self._spy_price = 0.0
         return self._spy_price or 0.0
 
     def process_signals(self, buy_signals: List[Dict], sell_signals: List[Dict],
@@ -70,15 +66,44 @@ class PerformanceTracker:
         opened = 0
         closed = 0
 
-        # Process SELL signals first (close positions)
+        # Validate sources and fetch authoritative market prices from yfinance
         sell_tickers = set()
+        price_tickers = []
+
         for signal in sell_signals:
             ticker = signal.get('ticker', '')
             if not ticker:
                 continue
+            valid, source = self.price_service.validate_price_payload_source(
+                signal,
+                context=f"sell signal {ticker}",
+            )
+            if not valid:
+                logger.error("Rejecting SELL signal payload for %s due to blocked price source=%s", ticker, source)
+                continue
             sell_tickers.add(ticker)
-            
-            current_price = signal.get('current_price', 0)
+            price_tickers.append(ticker)
+
+        valid_buy_signals = []
+        for signal in buy_signals:
+            ticker = signal.get('ticker', '')
+            if not ticker or ticker in sell_tickers:
+                continue
+            valid, source = self.price_service.validate_price_payload_source(
+                signal,
+                context=f"buy signal {ticker}",
+            )
+            if not valid:
+                logger.error("Rejecting BUY signal payload for %s due to blocked price source=%s", ticker, source)
+                continue
+            valid_buy_signals.append(signal)
+            price_tickers.append(ticker)
+
+        latest_prices = self.price_service.get_batch_current_prices(price_tickers)
+
+        # Process SELL signals first (close positions)
+        for ticker in sell_tickers:
+            current_price = latest_prices.get(ticker, 0)
             if current_price > 0:
                 result = self.db.close_position(
                     ticker=ticker,
@@ -91,12 +116,9 @@ class PerformanceTracker:
                     closed += 1
 
         # Process BUY signals (open positions)
-        for signal in buy_signals:
+        for signal in valid_buy_signals:
             ticker = signal.get('ticker', '')
-            if not ticker or ticker in sell_tickers:
-                continue
-
-            current_price = signal.get('current_price', 0)
+            current_price = latest_prices.get(ticker, 0)
             stop_loss = signal.get('stop_loss')
             score = signal.get('score', 0)
 
@@ -317,40 +339,9 @@ class PerformanceTracker:
     # ==================== PRIVATE HELPERS ====================
 
     def _batch_fetch_prices(self, tickers: List[str]) -> Dict[str, float]:
-        """Batch fetch current prices via yfinance."""
-        prices = {}
-        if not tickers:
-            return prices
+        """Batch fetch current prices via PriceService (yfinance-only)."""
+        return self.price_service.get_batch_current_prices(tickers)
 
-        try:
-            # yfinance batch download
-            data = yf.download(tickers, period="2d", progress=False, threads=True)
-            if data.empty:
-                return prices
-
-            for ticker in tickers:
-                try:
-                    if len(tickers) == 1:
-                        close = data['Close']
-                    else:
-                        close = data['Close'][ticker] if ticker in data['Close'].columns else None
-                    
-                    if close is not None and not close.empty:
-                        prices[ticker] = float(close.dropna().iloc[-1])
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.warning(f"Batch price fetch failed, trying individual: {e}")
-            for ticker in tickers:
-                try:
-                    t = yf.Ticker(ticker)
-                    hist = t.history(period="2d")
-                    if not hist.empty:
-                        prices[ticker] = float(hist['Close'].iloc[-1])
-                except Exception:
-                    continue
-
-        return prices
 
     def _compute_sharpe(self, returns: List[float], risk_free_rate: float = 0.05) -> Optional[float]:
         """Compute simplified Sharpe ratio from trade returns."""

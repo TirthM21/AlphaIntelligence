@@ -152,9 +152,8 @@ class USStockUniverseFetcher:
             'ETF', 'FUND', 'TRUST', 'INDEX', 'PORTFOLIO',
             'SHARES', 'NOTES', 'BOND', 'TREASURY'
         ]
-        name_upper = df['name'].str.upper()
-        for keyword in etf_keywords:
-            df = df[~name_upper.str.contains(keyword, na=False)]
+        etf_pattern = '|'.join(etf_keywords)
+        df = df[~df['name'].str.upper().str.contains(etf_pattern, na=False)]
 
         filtered_count = len(df)
         logger.info(f"Filtered {initial_count - filtered_count} stocks, kept {filtered_count}")

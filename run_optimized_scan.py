@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import sys
 import os
@@ -24,6 +25,7 @@ import time
 import io
 from datetime import datetime
 from pathlib import Path
+from collections import Counter
 
 # Force UTF-8 encoding for stdout to prevent Unicode crashes on Windows consoles
 if sys.stdout.encoding.lower() != 'utf-8':
@@ -54,6 +56,31 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def _write_github_output(key: str, value: str) -> None:
+    """Write step output when running under GitHub Actions."""
+    github_output_path = os.getenv('GITHUB_OUTPUT')
+    if not github_output_path:
+        return
+    try:
+        with open(github_output_path, 'a', encoding='utf-8') as output_file:
+            output_file.write(f"{key}={value}\n")
+    except Exception as output_err:
+        logger.warning(f"Unable to write {key} to GITHUB_OUTPUT: {output_err}")
+
+
+def _emit_email_delivery_summary(summary: dict) -> None:
+    """Log and export a structured email delivery summary."""
+    summary_json = json.dumps(summary, sort_keys=True)
+    logger.info(f"EMAIL_DELIVERY_SUMMARY {summary_json}")
+
+    _write_github_output('email_summary_json', summary_json)
+    _write_github_output('email_recipients_targeted', str(summary['recipients_targeted']))
+    _write_github_output('email_attempts', str(summary['attempts']))
+    _write_github_output('email_successes', str(summary['successes']))
+    _write_github_output('email_failures', str(summary['failures']))
+    _write_github_output('email_top_failure_reason', summary['top_failure_reason'])
 
 
 def save_report(results, buy_signals, sell_signals, spy_analysis, breadth, output_dir="./data/daily_scans"):
@@ -314,6 +341,8 @@ def main():
     parser.add_argument('--download-sec', action='store_true', help='Download SEC 10-Qs for top buy signals (requires sec-edgar-toolkit)')
     parser.add_argument('--send-email', action='store_true', help='Force-enable newsletter email delivery')
     parser.add_argument('--no-email', action='store_true', help='Disable newsletter email delivery')
+    parser.add_argument('--strict-email', action='store_true',
+                        help='Fail run when email delivery has zero successful sends')
     parser.add_argument('--diagnostics', action='store_true', help='Run diagnostic check for API keys and SEC access')
     parser.add_argument('--universe-source', type=str, default='exchange', choices=['auto','exchange','fmp','finnhub'],
                         help='Universe source preference (default: exchange)')
@@ -326,6 +355,7 @@ def main():
     args.prefetch_storage = (args.prefetch_storage or args.git_storage) and not args.no_prefetch_storage
 
     # Email defaults: enabled when configured unless explicitly disabled
+    send_email_explicitly_requested = args.send_email
     send_email_default = os.getenv('SEND_NEWSLETTER_EMAIL', '1').strip().lower() not in {'0', 'false', 'no'}
     args.send_email = (args.send_email or send_email_default) and not args.no_email
 
@@ -632,17 +662,29 @@ def main():
             logger.info(f"Newsletter ready: {newsletter_path}")
             
             # Send Email
+            email_summary = {
+                'email_enabled': bool(args.send_email),
+                'strict_mode': bool(args.strict_email or send_email_explicitly_requested),
+                'explicit_send_email': bool(send_email_explicitly_requested),
+                'recipients_targeted': 0,
+                'attempts': 0,
+                'successes': 0,
+                'failures': 0,
+                'top_failure_reason': 'none',
+            }
+            email_failure_reasons = []
+
             if args.send_email:
                 try:
                     logger.info("Preparing AlphaIntelligence Capital email delivery...")
-                    
+
                     # Build subscriber list: always include ENV recipient, optionally add DB subscribers
                     subscribers = []
                     default_recipient = os.getenv('EMAIL_RECIPIENT') or os.getenv('EMAIL_TO')
                     if default_recipient:
                         env_recipients = [x.strip() for x in default_recipient.split(',') if x.strip()]
                         subscribers.extend(env_recipients)
-                    
+
                     # Try to add database subscribers (optional — works without DB)
                     try:
                         db = DBManager()
@@ -652,22 +694,25 @@ def main():
                                 subscribers.append(email)
                     except Exception as db_err:
                         logger.warning(f"Could not fetch DB subscribers (non-fatal): {db_err}")
-                    
+
+                    email_summary['recipients_targeted'] = len(subscribers)
                     if not subscribers:
                         logger.warning("No recipients configured. Set EMAIL_RECIPIENT in .env or add subscribers to DB.")
+                        email_failure_reasons.append('no_recipients_configured')
                     else:
                         logger.info(f"Sending newsletter to {len(subscribers)} recipient(s)...")
                         notifier = EmailNotifier()
-                        
+
                         if not notifier.enabled:
                             logger.error("EmailNotifier is DISABLED. Check EMAIL_SENDER and EMAIL_PASSWORD in .env")
+                            email_failure_reasons.append('email_notifier_disabled')
                         else:
                             # Use latest_optimized_scan.txt as attachment if it exists
                             latest_report = Path("./data/daily_scans/latest_optimized_scan.txt")
                             report_to_attach = str(latest_report) if latest_report.exists() else None
-                            
-                            success_count = 0
+
                             for email in subscribers:
+                                email_summary['attempts'] += 1
                                 try:
                                     notifier.recipient_email = email
                                     logger.info(f"Sending to {email}...")
@@ -675,21 +720,38 @@ def main():
                                         newsletter_path=newsletter_path,
                                         scan_report_path=report_to_attach
                                     ):
-                                        success_count += 1
-                                        import time
+                                        email_summary['successes'] += 1
                                         time.sleep(0.5)
                                     else:
                                         logger.error(f"send_newsletter returned False for {email}")
+                                        email_failure_reasons.append('send_newsletter_returned_false')
                                 except Exception as e:
                                     logger.error(f"Failed to send to {email}: {type(e).__name__}: {e}")
-                            
-                            logger.info(f"✅ Delivery complete: {success_count}/{len(subscribers)} successful.")
-                            if success_count == 0 and len(subscribers) > 0:
+                                    email_failure_reasons.append(type(e).__name__)
+
+                            logger.info(
+                                f"✅ Delivery complete: {email_summary['successes']}/{len(subscribers)} successful."
+                            )
+                            if email_summary['successes'] == 0 and len(subscribers) > 0:
                                 logger.error("CRITICAL: All email delivery attempts failed.")
                 except Exception as email_err:
                     logger.error(f"Failed to send newsletter email: {email_err}")
+                    email_failure_reasons.append(type(email_err).__name__)
             else:
                 logger.info("Newsletter email delivery disabled for this run. Use --send-email to force or set SEND_NEWSLETTER_EMAIL=1.")
+
+            email_summary['failures'] = max(email_summary['attempts'] - email_summary['successes'], 0)
+            if email_failure_reasons:
+                email_summary['top_failure_reason'] = Counter(email_failure_reasons).most_common(1)[0][0]
+            _emit_email_delivery_summary(email_summary)
+
+            strict_email = args.strict_email or send_email_explicitly_requested
+            if strict_email and email_summary['successes'] == 0:
+                logger.error(
+                    "Email delivery strict check failed: zero successful sends "
+                    f"(attempts={email_summary['attempts']}, recipients={email_summary['recipients_targeted']})."
+                )
+                sys.exit(2)
             
             # Print preview
             print("\\n" + "="*60) 

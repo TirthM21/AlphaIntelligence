@@ -1963,6 +1963,13 @@ class NewsletterGenerator:
 
         macro_news_items = _fetch_quarterly_macro_news_items()
 
+        quarterly_cfg = (((self.newsletter_config or {}).get("newsletter") or {}).get("quarterly") or {})
+        trending_window_minutes = int(quarterly_cfg.get("trending_window_minutes", 24 * 60))
+        min_documents = int(quarterly_cfg.get("trending_min_documents", 3))
+        max_entity_age_minutes = int(quarterly_cfg.get("trending_max_entity_age_minutes", trending_window_minutes))
+        min_sentiment_confidence = float(quarterly_cfg.get("trending_min_sentiment_confidence", 0.35))
+        min_trending_entities = int(quarterly_cfg.get("trending_min_entities", 1))
+
         # Enhanced AI Thesis for Quarterly
         ai_thesis = "Institutional compounder selection focused on capital efficiency and moat depth."
         if self.ai_agent.client:
@@ -2291,6 +2298,14 @@ class NewsletterGenerator:
                     f"| {ent.get('key')} | {ent.get('sentiment_avg', 0):+.2f} | "
                     f"{ent.get('total_documents')} docs | {ent.get('_label')} |"
                 )
+            content.append("")
+        else:
+            content.append("## 🛸 Trending Institutional Interest")
+            content.append(
+                f"*No entities passed quality filters this run (raw entities: {len(trending)}, "
+                f"required docs≥{min_documents}, age≤{max_entity_age_minutes // 60}h, "
+                f"confidence≥{min_sentiment_confidence:.2f}).*"
+            )
             content.append("")
 
         # --- SECTION: PORTFOLIO ARCHITECTURE ---

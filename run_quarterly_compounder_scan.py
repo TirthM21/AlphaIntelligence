@@ -18,6 +18,7 @@ Usage:
 """
 
 import sys
+import os
 import logging
 import argparse
 import json
@@ -870,7 +871,12 @@ def main():
     parser.add_argument(
         "--send-email",
         action="store_true",
-        help="Send newsletter via email",
+        help="Force-enable newsletter email delivery",
+    )
+    parser.add_argument(
+        "--no-email",
+        action="store_true",
+        help="Disable newsletter email delivery",
     )
 
     args = parser.parse_args()
@@ -882,7 +888,9 @@ def main():
         test_mode=args.test_mode,
         limit=args.limit,
     )
-    scanner.send_email = args.send_email
+
+    send_email_default = os.getenv('SEND_NEWSLETTER_EMAIL', '1').strip().lower() not in {'0', 'false', 'no'}
+    scanner.send_email = (args.send_email or send_email_default) and not args.no_email
 
     success = scanner.run()
     sys.exit(0 if success else 1)

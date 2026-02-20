@@ -499,6 +499,35 @@ class OptimizedBatchProcessor:
         self.current_results.clear()
         logger.info("Progress cleared")
 
+    def prefetch_fundamentals_storage(self, tickers: List[str], log_every: int = 200):
+        """Warm Git-based fundamentals storage before signal analysis.
+
+        This pass prioritizes deterministic storage writes before the scan stage,
+        so later analysis mostly reads from local JSON cache.
+        """
+        if not (self.use_git_storage and self.git_fetcher):
+            logger.info("Skipping fundamental prefetch (git storage disabled).")
+            return
+
+        total = len(tickers)
+        if total == 0:
+            return
+
+        logger.info(f"🧠 Preloading fundamentals for {total} tickers into Git storage...")
+        start = time.time()
+        for i, ticker in enumerate(tickers, 1):
+            try:
+                self.git_fetcher.fetch_fundamentals_smart(ticker)
+            except Exception as e:
+                logger.debug(f"Prefetch fundamentals failed for {ticker}: {e}")
+
+            if i % log_every == 0 or i == total:
+                elapsed = time.time() - start
+                rate = i / elapsed if elapsed > 0 else 0.0
+                logger.info(f"Fundamental prefetch progress: {i}/{total} ({i/total*100:.1f}%) at {rate:.1f} tickers/sec")
+
+        logger.info("✅ Fundamental prefetch complete.")
+
     def pre_fetch_prices(self, tickers: List[str], batch_size: int = 500):
         """Pre-fetch price data for a list of tickers in large batches.
         

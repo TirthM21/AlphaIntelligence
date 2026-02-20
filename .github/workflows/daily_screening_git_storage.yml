@@ -74,9 +74,9 @@ jobs:
           FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || secrets.EMAIL_FROM }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT || secrets.EMAIL_TO }}
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER || 'smtp.gmail.com' }}
           EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT || '587' }}
           FORCE_FULL_REFRESH: ${{ github.event.inputs.force_full_refresh || 'false' }}
@@ -94,7 +94,7 @@ jobs:
 
           # Conservative mode to avoid rate limits
           # --git-storage flag enables Git-based fundamental storage
-          python run_optimized_scan.py --conservative --git-storage
+          python run_optimized_scan.py --conservative --git-storage --prefetch-storage --use-fmp --send-email --universe-source exchange
 
       - name: Show fundamental refresh stats
         if: always()
@@ -162,6 +162,8 @@ jobs:
           path: |
             data/daily_scans/
             data/logs/
+            data/daily_newsletter.md
+            data/charts/
           if-no-files-found: warn  # Don't fail if no files found
           retention-days: 90  # Keep screening results for 90 days
 

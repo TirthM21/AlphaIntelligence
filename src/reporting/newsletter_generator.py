@@ -321,6 +321,17 @@ class NewsletterGenerator:
             return None
         return max(candidates, key=lambda p: p.stat().st_mtime)
 
+    def _load_prior_newsletter_text(self, output_path: str) -> str:
+        """Load previous newsletter markdown for anti-repetition checks."""
+        prev = self._latest_previous_newsletter(output_path)
+        if not prev or not prev.exists():
+            return ""
+        try:
+            return prev.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.warning(f"Unable to read prior newsletter '{prev}': {e}")
+            return ""
+
     def _extract_markdown_links(self, markdown_text: str) -> List[Dict]:
         links = []
         for title, url in re.findall(r"\[([^\]]+)\]\((https?://[^\)]+)\)", markdown_text):
@@ -1066,6 +1077,11 @@ class NewsletterGenerator:
         market_snapshot = {}
         sentiment_proxy = section_results.get("market_sentiment") or {"score": 50.0, "label": "Neutral", "components": []}
         notable_movers = section_results.get("movers") or []
+        if not isinstance(notable_movers, list):
+            try:
+                notable_movers = list(notable_movers)
+            except Exception:
+                notable_movers = []
         if self.finnhub.api_key:
             try:
                 market_snapshot = self.finnhub.fetch_major_index_snapshot()
@@ -1091,13 +1107,7 @@ class NewsletterGenerator:
             market_status=market_status or {},
         )
 
-        # 5. QotD & Historical insights (Multiple QotDs for PRISM style)
-        qotds = []
-        for _ in range(3):
-            qotds.append(self.ai_agent.generate_qotd())
-            
-        history_insight = ""
-        # 6. Build content (institutional style, concise + actionable)
+        # 5. Build content (institutional style, concise + actionable)
         content = []
         date_str = datetime.now().strftime('%B %d, %Y')
         top_buys = top_buys or []
@@ -1109,6 +1119,22 @@ class NewsletterGenerator:
                 return float(value)
             except (TypeError, ValueError):
                 return default
+
+        def _ai_section_insight(title: str, payload: Dict[str, Any], fallback: str) -> str:
+            if not getattr(self.ai_agent, 'client', None):
+                return fallback
+            prompt = (
+                f"Act as a buy-side strategist. Write exactly 2 concise bullet points for '{title}'. "
+                "Use only facts present in the payload. Keep it tactical and risk-aware. "
+                "No markdown header, no hype, no trivia. Return only bullets.\n\n"
+                f"Payload:\n{json.dumps(payload, default=str)[:4000]}"
+            )
+            ai_text = self.ai_agent._call_ai(prompt, low_temp=True)
+            if not ai_text:
+                return fallback
+            lines = [ln.strip() for ln in ai_text.splitlines() if ln.strip()]
+            bullets = [ln if ln.startswith('-') else f"- {ln.lstrip('•- ')}" for ln in lines[:2]]
+            return "\n".join(bullets) if bullets else fallback
 
         spy_trend = market_status.get('spy', {}).get('trend', 'NEUTRAL')
         ad_ratio = _safe_num(market_status.get('breadth', {}).get('advance_decline_ratio'))
@@ -1140,12 +1166,15 @@ class NewsletterGenerator:
 
         # Compact Market Snapshot block near the top
         content.append("## Market Snapshot")
-        snapshot_headline = f"Tape check: sentiment proxy at {sentiment_proxy.get('score', 50.0):.1f}/100 ({sentiment_proxy.get('label', 'Neutral')}) with mixed cross-asset leadership."
-        if notable_movers:
-            dominant = max(notable_movers, key=lambda x: abs(x.get('change_pct', 0.0)))
+        sentiment_proxy_score = _safe_num(sentiment_proxy.get('score', 50.0), 50.0)
+        sentiment_proxy_label = sentiment_proxy.get('label', 'Neutral')
+        snapshot_headline = f"Tape check: sentiment proxy at {sentiment_proxy_score:.1f}/100 ({sentiment_proxy_label}) with mixed cross-asset leadership."
+        if notable_movers and any(isinstance(x, dict) for x in notable_movers):
+            valid_movers = [x for x in notable_movers if isinstance(x, dict)]
+            dominant = max(valid_movers, key=lambda x: abs(_safe_num(x.get('change_pct', 0.0))))
             snapshot_headline = (
                 f"Tape check: {dominant.get('symbol')} is leading notable flow ({dominant.get('change_pct', 0.0):+,.2f}%), "
-                f"while sentiment proxy sits at {sentiment_proxy.get('score', 50.0):.1f}/100 ({sentiment_proxy.get('label', 'Neutral')})."
+                f"while sentiment proxy sits at {sentiment_proxy_score:.1f}/100 ({sentiment_proxy_label})."
             )
             snapshot_headline = ''.join(snapshot_headline)
         content.append(f"- **Headline:** {snapshot_headline}")
@@ -1154,7 +1183,7 @@ class NewsletterGenerator:
         for symbol in ['SPY', 'QQQ', 'DIA', 'IWM']:
             data = market_snapshot.get(symbol, {})
             if data:
-                change = data.get('change_pct', 0.0)
+                change = _safe_num(data.get('change_pct', 0.0), 0.0)
                 arrow = '▲' if change >= 0 else '▼'
                 strip.append(f"{symbol} {arrow} {change:+.2f}%")
             elif symbol == 'SPY' and 'S&P 500' in index_perf:
@@ -1186,7 +1215,8 @@ class NewsletterGenerator:
         if notable_movers:
             mover_bits = []
             for m in notable_movers[:3]:
-                mover_bits.append(f"{m.get('symbol')} ({m.get('change_pct', 0.0):+,.2f}%: {m.get('reason', 'Notable move')})")
+                m_change = _safe_num(m.get('change_pct', 0.0), 0.0)
+                mover_bits.append(f"{m.get('symbol')} ({m_change:+,.2f}%: {m.get('reason', 'Notable move')})")
             content.append(f"- **Notable Movers:** {', '.join(mover_bits)}.")
         content.append("")
         content.append("---")
@@ -1218,6 +1248,14 @@ class NewsletterGenerator:
             mood_driver = "Risk-off posture with defensive bias"
         desk_take = mood_driver
         content.append(f"- **Desk Take:** {mood_driver}.")
+        quick_view_payload = {
+            'sentiment_score': sentiment_score,
+            'sentiment_label': sentiment_label,
+            'index_perf': index_perf,
+            'notable_movers': notable_movers[:3],
+        }
+        default_view = '- Market internals are mixed; stay selective with entry timing.\n- Respect volatility in single-name moves around macro and earnings catalysts.'
+        content.append(_ai_section_insight('Market Overview Quick View', quick_view_payload, default_view))
         content.append("")
 
         if index_perf:
@@ -1335,9 +1373,10 @@ class NewsletterGenerator:
         content.append("## 5) Notable Movers")
         if notable_movers:
             for mover in notable_movers[:6]:
-                direction = '▲' if mover.get('change_pct', 0.0) >= 0 else '▼'
+                mover_change = _safe_num(mover.get('change_pct', 0.0), 0.0)
+                direction = '▲' if mover_change >= 0 else '▼'
                 content.append(
-                    f"- **{mover.get('symbol', 'N/A')}** {direction} {mover.get('change_pct', 0.0):+,.2f}% — {mover.get('reason', 'Notable move')}"
+                    f"- **{mover.get('symbol', 'N/A')}** {direction} {mover_change:+,.2f}% — {mover.get('reason', 'Notable move')}"
                 )
         elif top_buys or top_sells:
             for idea in top_buys[:3]:
@@ -1355,24 +1394,31 @@ class NewsletterGenerator:
             content.append("- No reliable mover data available from configured feeds this run.")
         content.append("")
 
-        # --- SECTION: QUESTIONS OF THE DAY ---
-        content.append("## 6) Questions of the Day")
-        for i, q in enumerate(qotds, 1):
-            content.append(f"### {q.get('question')}")
-            content.append(f"📊 **The Answer**: {q.get('answer')}")
-            content.append(f"\n*{q.get('insight')}*")
-            if i < len(qotds): content.append("\n---")
+        # --- SECTION: ECONOMIC CALENDAR & DESK PLAYBOOK ---
+        content.append("## 6) Economic Calendar (Next 72 Hours)")
+        if econ_calendar:
+            for event in econ_calendar[:8]:
+                date_val = event.get('date') or event.get('time') or event.get('datetime') or 'TBD'
+                event_name = event.get('event') or event.get('title') or event.get('name') or 'Economic Event'
+                impact = event.get('impact') or event.get('importance') or 'N/A'
+                actual = event.get('actual') or event.get('value') or 'N/A'
+                forecast = event.get('forecast') or event.get('estimate') or 'N/A'
+                content.append(f"- **{date_val}** | {event_name} | Impact: {impact} | Actual: {actual} | Forecast: {forecast}")
+        else:
+            content.append("- No economic-calendar records available from configured providers for this run.")
         content.append("")
 
-        # --- SECTION: WHAT HISTORY SAYS ---
-        content.append("## 7) What History Says")
-        if top_buys:
-             t_stock = top_buys[0].get('ticker')
-             hist_comment = self.ai_agent._call_ai(f"Provide professional historical context for {t_stock} relative to its technical setup. 3 sentences.")
-             content.append(f"### {t_stock} Context")
-             content.append(f"{hist_comment or history_insight}")
-        else:
-             content.append(f"{history_insight}")
+        content.append("## 7) Institutional Desk Playbook")
+        macro_payload = {
+            "spy_trend": spy_trend,
+            "ad_ratio": ad_ratio,
+            "pct_above_200": pct_above_200,
+            "index_perf": index_perf,
+            "sector_leaders": sector_perf[:3] if sector_perf else [],
+            "sector_laggards": sector_perf[-3:] if sector_perf else [],
+        }
+        default_playbook = "- Keep gross exposure balanced until breadth confirms trend persistence.\n- Prioritize liquid leaders with clear catalyst windows and disciplined stop placement."
+        content.append(_ai_section_insight("Institutional Desk Playbook", macro_payload, default_playbook))
         content.append("")
 
         # --- SECTION: TOP HEADLINES ---

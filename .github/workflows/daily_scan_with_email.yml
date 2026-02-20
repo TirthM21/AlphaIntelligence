@@ -29,7 +29,7 @@ on:
         default: 'exchange'
 
 jobs:
-  market-scan:
+  daily-newsletter-scan:
     runs-on: ubuntu-latest
     
     steps:
@@ -49,7 +49,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: 🔍 Run Market Scan
+      - name: 🔍 Run Daily Newsletter Scan
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
@@ -60,6 +60,18 @@ jobs:
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: |
           echo "🚀 Starting daily market scan..."
+          RUN_STARTED_AT="$(date -u +'%Y-%m-%d %H:%M:%S')"
+          mkdir -p logs
+
+          # Persist shared email credentials to .env for workflow parity.
+          cat > .env <<EOF
+          EMAIL_SENDER=${EMAIL_SENDER}
+          EMAIL_PASSWORD=${EMAIL_PASSWORD}
+          EMAIL_RECIPIENT=${EMAIL_RECIPIENT}
+          EOF
+          set -a
+          source .env
+          set +a
           
           UNIVERSE_SOURCE="${{ github.event.inputs.universe_source || 'exchange' }}"
           echo "✓ Universe source: $UNIVERSE_SOURCE"
@@ -86,7 +98,14 @@ jobs:
           fi
           
           echo "Running: $CMD"
-          $CMD
+          bash -lc "$CMD" 2>&1 | tee logs/daily_newsletter.log
+
+          echo "🔎 Verifying daily newsletter artifact freshness..."
+          if ! find data/newsletters -maxdepth 1 -type f -name 'daily_newsletter_*.md' -newermt "$RUN_STARTED_AT" | grep -q .; then
+            echo "❌ No fresh daily newsletter artifact found in data/newsletters/daily_newsletter_*.md"
+            exit 1
+          fi
+          echo "✅ Fresh daily newsletter artifact detected"
       
       - name: 📊 Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -96,6 +115,8 @@ jobs:
           path: |
             data/daily_scans/*.txt
             data/daily_newsletter.md
+            data/newsletters/daily_newsletter_*.md
+            logs/daily_newsletter.log
           retention-days: 30
       
       - name: 💾 Commit Results to Repository

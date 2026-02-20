@@ -1784,6 +1784,170 @@ class NewsletterGenerator:
             prompt = f"Act as a hedge fund macro strategist. Provide a 4-sentence quarterly investment thesis for Q{q} {year} focusing on inflation, interest rates, and sector leadership. Be precise and sophisticated."
             ai_thesis = self.ai_agent._call_ai(prompt)
 
+        state = self._load_newsletter_state()
+        quarterly_history = state.get("quarterly_diagnostics", []) if isinstance(state, dict) else []
+        prior_quarter_metrics = quarterly_history[-1] if isinstance(quarterly_history, list) and quarterly_history else {}
+
+        def _safe_float(value: Any) -> Optional[float]:
+            try:
+                if value is None:
+                    return None
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        def _format_pct(value: Optional[float]) -> str:
+            return f"{value:.2%}" if value is not None else "N/A"
+
+        def _format_num(value: Optional[float], decimals: int = 2) -> str:
+            return f"{value:.{decimals}f}" if value is not None else "N/A"
+
+        sector_allocations: Dict[str, float] = {}
+        equity_alloc, etf_alloc = 0.0, 0.0
+        for ticker, allocation in portfolio.allocations.items():
+            alloc = float(allocation)
+            if ticker in top_stocks:
+                sector = top_stocks.get(ticker, {}).get("sector") or "Unknown"
+                equity_alloc += alloc
+            elif ticker in top_etfs:
+                sector = top_etfs.get(ticker, {}).get("theme") or "Thematic"
+                etf_alloc += alloc
+            else:
+                sector = "Unknown"
+            sector_allocations[sector] = sector_allocations.get(sector, 0.0) + alloc
+
+        current_metrics: Dict[str, Optional[float]] = {
+            "sector_concentration": _safe_float(getattr(portfolio, "sector_concentration", None)),
+            "top3_weight": None,
+            "sector_dispersion": None,
+            "regime_sentiment": None,
+            "high_impact_events": None,
+            "equity_exposure": equity_alloc if portfolio.allocations else None,
+            "etf_exposure": etf_alloc if portfolio.allocations else None,
+            "top_conviction_score": None,
+        }
+
+        sorted_alloc = sorted(portfolio.allocations.items(), key=lambda x: x[1], reverse=True)
+        if sorted_alloc:
+            current_metrics["top3_weight"] = sum(float(a) for _, a in sorted_alloc[:3])
+
+            top_conviction = sorted_alloc[:5]
+            total_top_alloc = sum(float(a) for _, a in top_conviction)
+            if total_top_alloc > 0:
+                weighted_score = 0.0
+                for ticker, alloc in top_conviction:
+                    meta = top_stocks.get(ticker, top_etfs.get(ticker, {}))
+                    weighted_score += float(alloc) * float(meta.get("score", 0))
+                current_metrics["top_conviction_score"] = weighted_score / total_top_alloc
+
+        if len(sector_allocations) > 1:
+            weights = list(sector_allocations.values())
+            mean_weight = sum(weights) / len(weights)
+            variance = sum((w - mean_weight) ** 2 for w in weights) / len(weights)
+            current_metrics["sector_dispersion"] = variance ** 0.5
+
+        if trending:
+            sentiments: List[float] = []
+            for item in trending:
+                sentiment = _safe_float(item.get("sentiment_avg"))
+                if sentiment is not None:
+                    sentiments.append(sentiment)
+            if sentiments:
+                current_metrics["regime_sentiment"] = sum(sentiments) / len(sentiments)
+
+        if econ_cal:
+            high_impact_count = sum(1 for event in econ_cal if str(event.get("impact", "")).lower() == "high")
+            current_metrics["high_impact_events"] = float(high_impact_count)
+
+        diagnostic_rows: List[Dict[str, str]] = []
+
+        def _add_row(metric: str, current: str, prior: str, interpretation: str) -> None:
+            if current == "N/A":
+                return
+            diagnostic_rows.append({
+                "metric": metric,
+                "current": current,
+                "prior": prior,
+                "interpretation": interpretation,
+            })
+
+        conc = current_metrics.get("sector_concentration")
+        if conc is not None:
+            prior_conc = _safe_float(prior_quarter_metrics.get("sector_concentration")) if prior_quarter_metrics else None
+            conc_prior_str = _format_num(prior_conc, 3)
+            conc_view = "Concentration risk elevated" if conc > 0.18 else "Diversification profile stable"
+            _add_row(
+                "Portfolio Concentration (Herfindahl)",
+                _format_num(conc, 3),
+                conc_prior_str,
+                conc_view,
+            )
+
+        top3 = current_metrics.get("top3_weight")
+        if top3 is not None:
+            prior_top3 = _safe_float(prior_quarter_metrics.get("top3_weight")) if prior_quarter_metrics else None
+            drift = "Top positions dominate risk budget" if top3 > 0.45 else "Top positions remain balanced"
+            _add_row(
+                "Top-3 Position Weight",
+                _format_pct(top3),
+                _format_pct(prior_top3),
+                drift,
+            )
+
+        dispersion = current_metrics.get("sector_dispersion")
+        if dispersion is not None:
+            prior_dispersion = _safe_float(prior_quarter_metrics.get("sector_dispersion")) if prior_quarter_metrics else None
+            interp = "Sector weights are widely dispersed" if dispersion > 0.08 else "Sector exposures are tightly clustered"
+            _add_row(
+                "Sector Allocation Dispersion (σ)",
+                _format_pct(dispersion),
+                _format_pct(prior_dispersion),
+                interp,
+            )
+
+        regime_sent = current_metrics.get("regime_sentiment")
+        if regime_sent is not None:
+            prior_regime = _safe_float(prior_quarter_metrics.get("regime_sentiment")) if prior_quarter_metrics else None
+            regime_interp = "Newsflow supports constructive risk regime" if regime_sent >= 0 else "Newsflow points to cautious regime"
+            _add_row(
+                "Regime Sentiment Indicator",
+                _format_num(regime_sent, 2),
+                _format_num(prior_regime, 2),
+                regime_interp,
+            )
+
+        high_impact = current_metrics.get("high_impact_events")
+        if high_impact is not None:
+            prior_events = _safe_float(prior_quarter_metrics.get("high_impact_events")) if prior_quarter_metrics else None
+            events_interp = "Dense high-impact macro calendar" if high_impact >= 3 else "Macro event pressure remains moderate"
+            _add_row(
+                "High-Impact Macro Events (30d)",
+                _format_num(high_impact, 0),
+                _format_num(prior_events, 0),
+                events_interp,
+            )
+
+        conviction_score = current_metrics.get("top_conviction_score")
+        if conviction_score is not None:
+            prior_conviction = _safe_float(prior_quarter_metrics.get("top_conviction_score")) if prior_quarter_metrics else None
+            conviction_interp = "Top convictions retain high factor quality" if conviction_score >= 75 else "Top conviction quality has softened"
+            _add_row(
+                "Top-5 Conviction Score (Weighted)",
+                _format_num(conviction_score, 1),
+                _format_num(prior_conviction, 1),
+                conviction_interp,
+            )
+
+        equity_exp = current_metrics.get("equity_exposure")
+        if equity_exp is not None:
+            prior_equity = _safe_float(prior_quarter_metrics.get("equity_exposure")) if prior_quarter_metrics else None
+            _add_row(
+                "Single-Name Equity Exposure",
+                _format_pct(equity_exp),
+                _format_pct(prior_equity),
+                "Core stock exposure defines primary return engine" if equity_exp >= 0.55 else "ETF sleeve carries larger portfolio influence",
+            )
+
         # 2. Build Content (PRISM style refactor)
         content = []
         content.append(f"## 🏛️ AlphaIntelligence Capital | STRATEGIC QUARTERLY")
@@ -1797,14 +1961,17 @@ class NewsletterGenerator:
         content.append(f"{ai_thesis}")
         content.append("")
         
-        # Multiple AI QotDs
-        content.append("## 💡 Institutional Historical Insights")
-        for i in range(2):
-            q_data = self.ai_agent.generate_qotd()
-            content.append(f"### {q_data.get('question')}")
-            content.append(f"📊 **The Answer**: {q_data.get('answer')}")
-            content.append(f"\n*{q_data.get('insight')}*")
-            if i == 0: content.append("\n---")
+        # Deterministic diagnostics block (no AI trivia fallback)
+        content.append("## 🧪 Portfolio & Macro Signal Diagnostics")
+        if diagnostic_rows:
+            content.append("| Metric | Current Value | Prior Quarter | Interpretation |")
+            content.append("|--------|---------------|---------------|----------------|")
+            for row in diagnostic_rows:
+                content.append(
+                    f"| {row['metric']} | {row['current']} | {row['prior']} | {row['interpretation']} |"
+                )
+        else:
+            content.append("*Insufficient data to render portfolio/macro diagnostics for this quarter.*")
         content.append("")
 
         # --- SECTION: MARKET TRENDING ---
@@ -1888,6 +2055,20 @@ class NewsletterGenerator:
         if self.ai_agent.client:
              logger.info("Enhancing quarterly newsletter prose with AI...")
              final_md = self.ai_agent.enhance_newsletter(final_md)
+
+        state_payload = state if isinstance(state, dict) else {"runs": []}
+        history_payload = state_payload.get("quarterly_diagnostics")
+        if not isinstance(history_payload, list):
+            history_payload = []
+        history_payload.append(
+            {
+                "quarter": f"Q{q} {year}",
+                "captured_at": datetime.now().isoformat(),
+                **{k: v for k, v in current_metrics.items() if v is not None},
+            }
+        )
+        state_payload["quarterly_diagnostics"] = history_payload[-8:]
+        self._save_newsletter_state(state_payload)
 
         # Save to file
         output_path_obj = Path(output_path)

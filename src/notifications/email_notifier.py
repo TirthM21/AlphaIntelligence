@@ -64,9 +64,15 @@ class EmailNotifier:
             if not raw_src or self._is_remote_image_source(raw_src):
                 return match.group(0)
 
+            # Resolve from CWD first (handles markdown paths like ./data/charts/...),
+            # then fall back to newsletter directory-relative resolution.
             resolved = Path(raw_src)
             if not resolved.is_absolute():
-                resolved = (base_dir / raw_src).resolve()
+                cwd_candidate = resolved.resolve()
+                if cwd_candidate.exists() and cwd_candidate.is_file():
+                    resolved = cwd_candidate
+                else:
+                    resolved = (base_dir / raw_src).resolve()
 
             if not resolved.exists() or not resolved.is_file():
                 logger.warning("Newsletter image path not found; leaving source unchanged: %s", raw_src)

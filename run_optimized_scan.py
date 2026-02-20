@@ -638,9 +638,10 @@ def main():
                     
                     # Build subscriber list: always include ENV recipient, optionally add DB subscribers
                     subscribers = []
-                    default_recipient = os.getenv('EMAIL_RECIPIENT')
+                    default_recipient = os.getenv('EMAIL_RECIPIENT') or os.getenv('EMAIL_TO')
                     if default_recipient:
-                        subscribers.append(default_recipient)
+                        env_recipients = [x.strip() for x in default_recipient.split(',') if x.strip()]
+                        subscribers.extend(env_recipients)
                     
                     # Try to add database subscribers (optional — works without DB)
                     try:

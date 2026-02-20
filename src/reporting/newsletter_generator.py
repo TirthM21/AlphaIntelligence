@@ -71,7 +71,7 @@ class NewsletterGenerator:
         self.marketaux = MarketauxFetcher()
         self.fred = FredFetcher()
         self.ai_agent = AIAgent()
-        self.visualizer = MarketVisualizer()
+        self.visualizer = MarketVisualizer(output_dir="./data/charts")
         self.price_service = PriceService()
         self.portfolio_path = Path(portfolio_path)
         self.config_path = Path(config_path)

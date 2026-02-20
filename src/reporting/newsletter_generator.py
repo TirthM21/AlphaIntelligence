@@ -1774,14 +1774,12 @@ class NewsletterGenerator:
         year = quarter_date.year
 
         trending = self.marketaux.fetch_trending_entities() if self.marketaux.api_key else []
-        trending_window_minutes = 1440
-        min_trending_entities = 3
-        min_documents = 3
-        max_entity_age_minutes = 72 * 60
-        min_sentiment_confidence = 0.20
-        econ_cal = []
+        econ_cal: List[Dict] = []
+        econ_cal_window_days = 30
+        econ_cal_provider_attempted = "fmp"
+        econ_cal_provider_status = self.provider_status.get(econ_cal_provider_attempted, {})
         if self.fetcher and self.fetcher.fmp_available:
-            econ_cal = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=30) 
+            econ_cal = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=econ_cal_window_days)
 
         macro_theme_keywords: Dict[str, List[str]] = {
             "inflation": ["inflation", "cpi", "ppi", "prices", "disinflation"],
@@ -2275,15 +2273,29 @@ class NewsletterGenerator:
                 content.append("")
 
         # --- SECTION: ECONOMIC HORIZON ---
+        content.append("## 📅 Event Horizon — Key Quarterly Catalysts")
+        provider_active = bool(econ_cal_provider_status.get("active", False))
+        provider_key_env = econ_cal_provider_status.get("key_env") or "N/A"
+        content.append(
+            (
+                "_Provider status: attempted "
+                f"`{econ_cal_provider_attempted}` (active={provider_active}, key_env={provider_key_env}, "
+                f"window={econ_cal_window_days}d)._"
+            )
+        )
         if econ_cal:
-            content.append("## 📅 Event Horizon — Key Quarterly Catalysts")
             content.append("| Date | Event | Impact | Priority |")
             content.append("|------|-------|--------|----------|")
             for event in econ_cal[:8]:
                 imp = event.get('impact', 'Medium')
                 imp_icon = "🔴" if imp == "High" else "🟡"
                 content.append(f"| {event.get('date')} | {event.get('event')} | {imp_icon} {imp} | Strategic |")
-            content.append("")
+        else:
+            content.append(
+                "No high-confidence macro events were returned for the configured "
+                f"{econ_cal_window_days}-day window from provider `{econ_cal_provider_attempted}`."
+            )
+        content.append("")
 
         # --- GLOSSARY & FOOTER ---
         content.append("## 📖 Glossary")

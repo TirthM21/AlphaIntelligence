@@ -2305,23 +2305,114 @@ class NewsletterGenerator:
         content.append(f"- **Satellite (40%)**: {len(portfolio.satellite_allocations)} Thematic/Macro ETF Engines")
         content.append("")
 
-        # --- SECTION: TOP CONVICTION ---
-        content.append("## 💎 Top Conviction Picks (Alpha Leaders)")
-        content.append("| Rank | Ticker | Allocation | Sector/Theme | Score |")
-        content.append("|------|--------|------------|--------------|-------|")
-        
+        # --- SECTION: TOP CONVICTION (SLEEVE AWARE) ---
         sorted_alloc = sorted(portfolio.allocations.items(), key=lambda x: x[1], reverse=True)
-        for rank, (ticker, alloc) in enumerate(sorted_alloc[:10], 1):
-            if ticker in top_etfs:
-                name = top_etfs[ticker].get('theme', 'Thematic')
-                score = top_etfs[ticker].get('score', 0)
-                icon = "📦"
-            else:
-                name = top_stocks.get(ticker, {}).get('sector', 'Unknown')
-                score = top_stocks.get(ticker, {}).get('score', 0)
-                icon = "🏢"
-            
-            content.append(f"| {rank} | **{ticker}** {icon} | {alloc:.2%} | {name} | {score:.1f} |")
+
+        core_allocations = getattr(portfolio, "core_allocations", {}) or {}
+        satellite_allocations = getattr(portfolio, "satellite_allocations", {}) or {}
+        if not core_allocations:
+            core_allocations = {ticker: alloc for ticker, alloc in portfolio.allocations.items() if ticker in top_stocks}
+        if not satellite_allocations:
+            satellite_allocations = {ticker: alloc for ticker, alloc in portfolio.allocations.items() if ticker in top_etfs}
+
+        core_sorted = sorted(core_allocations.items(), key=lambda x: x[1], reverse=True)
+        satellite_sorted = sorted(satellite_allocations.items(), key=lambda x: x[1], reverse=True)
+
+        core_sector_weights: Dict[str, float] = {}
+        for ticker, alloc in core_sorted:
+            sector = top_stocks.get(ticker, {}).get("sector") or "Unknown"
+            core_sector_weights[sector] = core_sector_weights.get(sector, 0.0) + float(alloc)
+
+        satellite_theme_weights: Dict[str, float] = {}
+        for ticker, alloc in satellite_sorted:
+            theme = top_etfs.get(ticker, {}).get("theme") or "Thematic"
+            satellite_theme_weights[theme] = satellite_theme_weights.get(theme, 0.0) + float(alloc)
+
+        def _position_size_bucket(allocation: float) -> str:
+            if allocation >= 0.08:
+                return "High Conviction (8%+)"
+            if allocation >= 0.04:
+                return "Core (4-8%)"
+            return "Satellite (<4%)"
+
+        def _sector_overlap_note(bucket_weight: float) -> str:
+            if bucket_weight >= 0.20:
+                return "High overlap risk"
+            if bucket_weight >= 0.12:
+                return "Moderate overlap"
+            return "Low overlap"
+
+        def _core_role(ticker: str, alloc: float) -> str:
+            score = float(top_stocks.get(ticker, {}).get("score", 0))
+            if score >= 85:
+                return "Quality Compounder"
+            if alloc >= 0.06:
+                return "Core Return Driver"
+            return "Defensive Compounder"
+
+        def _satellite_role(ticker: str, theme: str) -> str:
+            lower_theme = str(theme).lower()
+            if "ai" in lower_theme or "tech" in lower_theme:
+                return "AI Beta Sleeve"
+            if "energy" in lower_theme or "commodity" in lower_theme:
+                return "Cyclical Hedge"
+            if "treasury" in lower_theme or "bond" in lower_theme:
+                return "Rate Buffer"
+            return "Thematic Diversifier"
+
+        content.append("## 💎 Sleeve-Level Conviction Picks")
+
+        content.append("### Core Equity Compounders")
+        content.append("| Rank | Ticker | Allocation | Role/Purpose | Sector | Position Size Bucket | Sector Overlap Note | Score |")
+        content.append("|------|--------|------------|--------------|--------|----------------------|---------------------|-------|")
+        for rank, (ticker, alloc) in enumerate(core_sorted[:10], 1):
+            sector = top_stocks.get(ticker, {}).get("sector") or "Unknown"
+            score = float(top_stocks.get(ticker, {}).get("score", 0))
+            overlap_note = _sector_overlap_note(core_sector_weights.get(sector, 0.0))
+            content.append(
+                f"| {rank} | **{ticker}** 🏢 | {float(alloc):.2%} | {_core_role(ticker, float(alloc))} | "
+                f"{sector} | {_position_size_bucket(float(alloc))} | {overlap_note} | {score:.1f} |"
+            )
+        if not core_sorted:
+            content.append("| - | - | - | No eligible core equity positions this quarter | - | - | - | - |")
+        content.append("")
+
+        content.append("### Satellite Thematic ETFs")
+        content.append("| Rank | Ticker | Allocation | Role/Purpose | Theme | Position Size Bucket | Sector Overlap Note | Score |")
+        content.append("|------|--------|------------|--------------|-------|----------------------|---------------------|-------|")
+        for rank, (ticker, alloc) in enumerate(satellite_sorted[:10], 1):
+            theme = top_etfs.get(ticker, {}).get("theme") or "Thematic"
+            score = float(top_etfs.get(ticker, {}).get("score", 0))
+            overlap_note = _sector_overlap_note(satellite_theme_weights.get(theme, 0.0))
+            content.append(
+                f"| {rank} | **{ticker}** 📦 | {float(alloc):.2%} | {_satellite_role(ticker, theme)} | "
+                f"{theme} | {_position_size_bucket(float(alloc))} | {overlap_note} | {score:.1f} |"
+            )
+        if not satellite_sorted:
+            content.append("| - | - | - | No eligible satellite ETF positions this quarter | - | - | - | - |")
+        content.append("")
+
+        content.append("### Total Portfolio Allocation Summary")
+        content.append("| Sleeve | Total Allocation | Position Count | Largest Position | Top-3 Concentration |")
+        content.append("|--------|------------------|----------------|------------------|---------------------|")
+
+        def _top3_concentration(rows: List[Tuple[str, float]]) -> float:
+            return sum(float(alloc) for _, alloc in rows[:3]) if rows else 0.0
+
+        core_top = core_sorted[0][0] if core_sorted else "N/A"
+        satellite_top = satellite_sorted[0][0] if satellite_sorted else "N/A"
+        content.append(
+            f"| Core Equity Compounders | {sum(float(a) for _, a in core_sorted):.2%} | {len(core_sorted)} | "
+            f"{core_top} | {_top3_concentration(core_sorted):.2%} |"
+        )
+        content.append(
+            f"| Satellite Thematic ETFs | {sum(float(a) for _, a in satellite_sorted):.2%} | {len(satellite_sorted)} | "
+            f"{satellite_top} | {_top3_concentration(satellite_sorted):.2%} |"
+        )
+        content.append(
+            f"| **Total Portfolio** | {sum(float(a) for _, a in sorted_alloc):.2%} | {len(sorted_alloc)} | "
+            f"{sorted_alloc[0][0] if sorted_alloc else 'N/A'} | {_top3_concentration(sorted_alloc):.2%} |"
+        )
         content.append("")
 
         # AI Analysis for Top Pick

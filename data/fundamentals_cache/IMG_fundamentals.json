@@ -1,0 +1,38 @@
+{
+  "data": {
+    "ticker": "IMG",
+    "fetch_date": "2026-02-20T16:10:30.266456",
+    "quarterly_revenue": {
+      "2024-06-30 00:00:00": 366888.0,
+      "2024-09-30 00:00:00": 288336.0,
+      "2024-12-31 00:00:00": 22853.0,
+      "2025-03-31 00:00:00": 0.0,
+      "2025-06-30 00:00:00": NaN
+    },
+    "revenue_qoq_change": null,
+    "revenue_yoy_change": null,
+    "quarterly_eps": {
+      "2024-06-30 00:00:00": -18.4,
+      "2024-09-30 00:00:00": NaN,
+      "2024-12-31 00:00:00": -3.4,
+      "2025-03-31 00:00:00": -0.6,
+      "2025-06-30 00:00:00": -0.6
+    },
+    "eps_qoq_change": 0.0,
+    "eps_yoy_change": 96.73913043478261,
+    "gross_margin": NaN,
+    "margin_change": NaN,
+    "operating_margin": NaN,
+    "quarterly_inventory": {
+      "2024-06-30 00:00:00": 937166.0,
+      "2024-09-30 00:00:00": 4548035.0,
+      "2024-12-31 00:00:00": 4608307.0,
+      "2025-03-31 00:00:00": 12751596.0,
+      "2025-06-30 00:00:00": NaN
+    },
+    "inventory_qoq_change": null,
+    "inventory_to_sales_ratio": NaN,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:10:30.268339"
+}

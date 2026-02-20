@@ -1,0 +1,24 @@
+{
+  "data": {
+    "ticker": "EQPT",
+    "fetch_date": "2026-02-20T16:07:10.268579",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 776300000.0,
+      "2024-12-31 00:00:00": 1553100000.0,
+      "2025-09-30 00:00:00": 943900000.0
+    },
+    "revenue_qoq_change": -39.22477625394373,
+    "gross_margin": 32.46,
+    "margin_change": 10.5,
+    "operating_margin": 6.87,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 331500000.0,
+      "2025-06-30 00:00:00": 373600000.0,
+      "2025-09-30 00:00:00": 404100000.0
+    },
+    "inventory_qoq_change": 8.16,
+    "inventory_to_sales_ratio": 0.428,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:07:10.270195"
+}

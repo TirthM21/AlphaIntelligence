@@ -1,0 +1,19 @@
+{
+  "data": {
+    "ticker": "BOBS",
+    "fetch_date": "2026-02-20T16:02:11.515122",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 599761000.0
+    },
+    "gross_margin": 45.52,
+    "operating_margin": 9.06,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 303930000.0,
+      "2025-09-30 00:00:00": 341276000.0
+    },
+    "inventory_qoq_change": 12.29,
+    "inventory_to_sales_ratio": 0.569,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:02:11.516171"
+}

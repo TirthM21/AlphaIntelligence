@@ -1,0 +1,19 @@
+{
+  "data": {
+    "ticker": "INFQ",
+    "fetch_date": "2026-02-20T16:10:38.876160",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 9255000.0
+    },
+    "gross_margin": 54.96,
+    "operating_margin": -69.48,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 2223000.0,
+      "2025-09-30 00:00:00": 4055000.0
+    },
+    "inventory_qoq_change": 82.41,
+    "inventory_to_sales_ratio": 0.438,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:10:38.877189"
+}

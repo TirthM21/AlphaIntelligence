@@ -1,0 +1,19 @@
+{
+  "data": {
+    "ticker": "APC",
+    "fetch_date": "2026-02-20T16:00:16.496138",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 1442969000.0
+    },
+    "gross_margin": 3.15,
+    "operating_margin": 1.35,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 24448000.0,
+      "2025-09-30 00:00:00": 23672000.0
+    },
+    "inventory_qoq_change": -3.17,
+    "inventory_to_sales_ratio": 0.016,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:00:16.497161"
+}

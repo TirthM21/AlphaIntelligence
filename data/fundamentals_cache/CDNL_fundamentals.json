@@ -1,0 +1,17 @@
+{
+  "data": {
+    "ticker": "CDNL",
+    "fetch_date": "2026-02-20T16:03:27.659827",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 76345981.0,
+      "2024-12-31 00:00:00": 84927267.0,
+      "2025-09-30 00:00:00": 122323522.0
+    },
+    "revenue_qoq_change": 44.03327261196336,
+    "gross_margin": 21.1,
+    "margin_change": 0.71,
+    "operating_margin": 9.74,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:03:27.661012"
+}

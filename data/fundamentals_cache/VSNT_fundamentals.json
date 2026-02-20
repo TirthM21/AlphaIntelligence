@@ -1,0 +1,21 @@
+{
+  "data": {
+    "ticker": "VSNT",
+    "fetch_date": "2026-02-20T16:23:01.283544",
+    "quarterly_revenue": {
+      "2024-06-30 00:00:00": 1808000000.0,
+      "2025-06-30 00:00:00": 1708000000.0
+    },
+    "revenue_qoq_change": -5.530973451327434,
+    "quarterly_eps": {
+      "2024-06-30 00:00:00": 2.580818,
+      "2025-06-30 00:00:00": 2.089563
+    },
+    "eps_qoq_change": -19.03485639049324,
+    "gross_margin": 59.02,
+    "margin_change": 0.33,
+    "operating_margin": 23.95,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:23:01.284984"
+}

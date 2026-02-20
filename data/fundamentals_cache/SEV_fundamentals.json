@@ -1,0 +1,21 @@
+{
+  "data": {
+    "ticker": "SEV",
+    "fetch_date": "2026-02-20T16:18:45.172007",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 0.0,
+      "2024-12-31 00:00:00": 0.0,
+      "2025-09-30 00:00:00": 0.0
+    },
+    "revenue_qoq_change": null,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": -0.299772,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": -0.200542
+    },
+    "eps_qoq_change": null,
+    "operating_margin": 0,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:18:45.173032"
+}

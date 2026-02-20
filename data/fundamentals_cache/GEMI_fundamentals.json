@@ -1,0 +1,23 @@
+{
+  "data": {
+    "ticker": "GEMI",
+    "fetch_date": "2026-02-20T16:08:38.408644",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 24542000.0,
+      "2024-12-31 00:00:00": 43300000.0,
+      "2025-09-30 00:00:00": 50618000.0
+    },
+    "revenue_qoq_change": 16.90069284064665,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": -0.770221,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": -6.67
+    },
+    "eps_qoq_change": null,
+    "gross_margin": -103.17,
+    "margin_change": -99.17,
+    "operating_margin": -238.64,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:08:38.410046"
+}

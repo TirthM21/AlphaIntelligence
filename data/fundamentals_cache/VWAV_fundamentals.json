@@ -1,0 +1,19 @@
+{
+  "data": {
+    "ticker": "VWAV",
+    "fetch_date": "2026-02-20T16:23:09.999114",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 0.0,
+      "2025-06-30 00:00:00": 0.0
+    },
+    "revenue_qoq_change": null,
+    "quarterly_eps": {
+      "2024-12-31 00:00:00": -0.014292,
+      "2025-06-30 00:00:00": -0.030432
+    },
+    "eps_qoq_change": -112.93031066330816,
+    "operating_margin": 0,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:23:10.000181"
+}

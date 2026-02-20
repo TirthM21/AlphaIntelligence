@@ -1,0 +1,27 @@
+{
+  "data": {
+    "ticker": "BETA",
+    "fetch_date": "2026-02-20T16:01:40.717077",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 3066000.0,
+      "2024-12-31 00:00:00": 4437000.0,
+      "2025-09-30 00:00:00": 8918000.0
+    },
+    "revenue_qoq_change": 100.99166103222899,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": -0.366828,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": -2.433449
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 69.26,
+    "margin_change": -3.24,
+    "operating_margin": -903.5,
+    "quarterly_inventory": {
+      "2025-09-30 00:00:00": 2790000.0
+    },
+    "inventory_to_sales_ratio": 0.313,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:01:40.718790"
+}

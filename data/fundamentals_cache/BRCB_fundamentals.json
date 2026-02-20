@@ -1,0 +1,30 @@
+{
+  "data": {
+    "ticker": "BRCB",
+    "fetch_date": "2026-02-20T16:02:29.385911",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 41455000.0,
+      "2024-12-31 00:00:00": 42812000.0,
+      "2025-09-30 00:00:00": 51468000.0
+    },
+    "revenue_qoq_change": 20.218630290572737,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": -0.047274,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": -0.05
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 29.7,
+    "margin_change": 2.48,
+    "operating_margin": -9.53,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 2055000.0,
+      "2025-06-30 00:00:00": 2644000.0,
+      "2025-09-30 00:00:00": 2786000.0
+    },
+    "inventory_qoq_change": 5.37,
+    "inventory_to_sales_ratio": 0.054,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:02:29.387724"
+}

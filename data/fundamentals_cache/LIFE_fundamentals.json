@@ -1,0 +1,16 @@
+{
+  "data": {
+    "ticker": "LIFE",
+    "fetch_date": "2026-02-20T16:12:16.793538",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 66524000.0,
+      "2025-09-30 00:00:00": NaN
+    },
+    "revenue_qoq_change": null,
+    "gross_margin": NaN,
+    "margin_change": NaN,
+    "operating_margin": NaN,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:12:16.794750"
+}

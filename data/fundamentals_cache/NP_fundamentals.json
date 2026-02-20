@@ -1,0 +1,23 @@
+{
+  "data": {
+    "ticker": "NP",
+    "fetch_date": "2026-02-20T16:14:36.876574",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 33820000.0,
+      "2024-12-31 00:00:00": 31503000.0,
+      "2025-09-30 00:00:00": 44365000.0
+    },
+    "revenue_qoq_change": 40.82785766434942,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": 0.043685,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": 0.039794
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 64.81,
+    "margin_change": -2.83,
+    "operating_margin": 57.85,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:14:36.877989"
+}

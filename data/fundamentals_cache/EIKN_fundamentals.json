@@ -1,0 +1,12 @@
+{
+  "data": {
+    "ticker": "EIKN",
+    "fetch_date": "2026-02-20T16:06:50.954985",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 0.0
+    },
+    "operating_margin": 0,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:06:50.955440"
+}

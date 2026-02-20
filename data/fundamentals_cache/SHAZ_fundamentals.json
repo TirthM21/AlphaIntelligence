@@ -1,0 +1,16 @@
+{
+  "data": {
+    "ticker": "SHAZ",
+    "fetch_date": "2026-02-20T16:19:00.715535",
+    "quarterly_revenue": {
+      "2025-03-31 00:00:00": 325092.0
+    },
+    "quarterly_eps": {
+      "2025-03-31 00:00:00": -0.124808
+    },
+    "gross_margin": 3.6,
+    "operating_margin": -605.91,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:19:00.716247"
+}

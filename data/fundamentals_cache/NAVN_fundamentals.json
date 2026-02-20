@@ -1,0 +1,23 @@
+{
+  "data": {
+    "ticker": "NAVN",
+    "fetch_date": "2026-02-20T16:14:07.822308",
+    "quarterly_revenue": {
+      "2024-10-31 00:00:00": 151118000.0,
+      "2025-01-31 00:00:00": 131992000.0,
+      "2025-10-31 00:00:00": 194934000.0
+    },
+    "revenue_qoq_change": 47.68622340747924,
+    "quarterly_eps": {
+      "2024-10-31 00:00:00": -0.168728,
+      "2025-01-31 00:00:00": NaN,
+      "2025-10-31 00:00:00": -4.58
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 70.72,
+    "margin_change": 3.11,
+    "operating_margin": -40.65,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:14:07.823743"
+}

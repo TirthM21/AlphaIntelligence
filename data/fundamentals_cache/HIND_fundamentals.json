@@ -1,0 +1,21 @@
+{
+  "data": {
+    "ticker": "HIND",
+    "fetch_date": "2026-02-20T16:09:42.095943",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 84526.0,
+      "2025-09-30 00:00:00": 34627.0
+    },
+    "revenue_qoq_change": -59.03390672692426,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": -0.098421,
+      "2025-09-30 00:00:00": -3.12
+    },
+    "eps_qoq_change": -3070.055171152498,
+    "gross_margin": 52.13,
+    "margin_change": 8.25,
+    "operating_margin": -2508.96,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:09:42.097351"
+}

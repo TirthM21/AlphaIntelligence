@@ -1,0 +1,25 @@
+{
+  "data": {
+    "ticker": "FPS",
+    "fetch_date": "2026-02-20T16:08:07.327628",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 154013000.0,
+      "2025-09-30 00:00:00": 283274000.0
+    },
+    "revenue_qoq_change": 83.92862940141417,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": 0.027173,
+      "2025-09-30 00:00:00": 0.04
+    },
+    "eps_qoq_change": 47.20494608618851,
+    "gross_margin": 34.58,
+    "margin_change": -8.56,
+    "operating_margin": 9.59,
+    "quarterly_inventory": {
+      "2025-09-30 00:00:00": 143916000.0
+    },
+    "inventory_to_sales_ratio": 0.508,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:08:07.329305"
+}

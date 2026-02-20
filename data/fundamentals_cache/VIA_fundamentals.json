@@ -1,0 +1,23 @@
+{
+  "data": {
+    "ticker": "VIA",
+    "fetch_date": "2026-02-20T16:22:43.433243",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 83314000.0,
+      "2024-12-31 00:00:00": 91684000.0,
+      "2025-09-30 00:00:00": 109653000.0
+    },
+    "revenue_qoq_change": 19.598839492168754,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": -0.295885,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": -0.463469
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 39.29,
+    "margin_change": -1.04,
+    "operating_margin": -17.23,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:22:43.434650"
+}

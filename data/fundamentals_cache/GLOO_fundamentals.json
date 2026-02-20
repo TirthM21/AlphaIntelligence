@@ -1,0 +1,30 @@
+{
+  "data": {
+    "ticker": "GLOO",
+    "fetch_date": "2026-02-20T16:08:50.374168",
+    "quarterly_revenue": {
+      "2024-10-31 00:00:00": 6123000.0,
+      "2025-01-31 00:00:00": 16490000.0,
+      "2025-10-31 00:00:00": 32552000.0
+    },
+    "revenue_qoq_change": 97.40448756822316,
+    "quarterly_eps": {
+      "2024-10-31 00:00:00": -0.213472,
+      "2025-01-31 00:00:00": NaN,
+      "2025-10-31 00:00:00": -0.483707
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 23.67,
+    "margin_change": 5.68,
+    "operating_margin": -82.0,
+    "quarterly_inventory": {
+      "2025-01-31 00:00:00": NaN,
+      "2025-07-31 00:00:00": NaN,
+      "2025-10-31 00:00:00": 1303000.0
+    },
+    "inventory_qoq_change": null,
+    "inventory_to_sales_ratio": 0.04,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:08:50.375996"
+}

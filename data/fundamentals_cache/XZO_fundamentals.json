@@ -1,0 +1,23 @@
+{
+  "data": {
+    "ticker": "XZO",
+    "fetch_date": "2026-02-20T16:23:54.688611",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 29110000.0,
+      "2024-12-31 00:00:00": 44533000.0,
+      "2025-09-30 00:00:00": 55166000.0
+    },
+    "revenue_qoq_change": 23.876675723620686,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": 0.057912,
+      "2024-12-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": 0.233194
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 61.22,
+    "margin_change": 19.22,
+    "operating_margin": 49.4,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:23:54.690154"
+}

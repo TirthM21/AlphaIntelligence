@@ -1,0 +1,22 @@
+{
+  "data": {
+    "ticker": "XCH",
+    "fetch_date": "2026-02-20T16:23:42.020200",
+    "quarterly_revenue": {
+      "2024-06-30 00:00:00": 8997506.0
+    },
+    "quarterly_eps": {
+      "2024-06-30 00:00:00": -0.022247
+    },
+    "gross_margin": 46.15,
+    "operating_margin": -10.26,
+    "quarterly_inventory": {
+      "2024-06-30 00:00:00": 7481488.0,
+      "2025-06-30 00:00:00": 9697504.0
+    },
+    "inventory_qoq_change": 29.62,
+    "inventory_to_sales_ratio": 1.078,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:23:42.021362"
+}

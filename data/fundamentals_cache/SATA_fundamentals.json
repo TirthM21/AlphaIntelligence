@@ -1,0 +1,16 @@
+{
+  "data": {
+    "ticker": "SATA",
+    "fetch_date": "2026-02-20T16:18:31.663379",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 984000.0,
+      "2024-12-31 00:00:00": 1035106.0
+    },
+    "revenue_qoq_change": 5.1936991869918705,
+    "gross_margin": -291.17,
+    "margin_change": -40.15,
+    "operating_margin": -453.28,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:18:31.664576"
+}

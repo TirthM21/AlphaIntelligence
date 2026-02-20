@@ -1,0 +1,15 @@
+{
+  "data": {
+    "ticker": "AEAQ",
+    "fetch_date": "2026-02-20T15:58:49.278501",
+    "quarterly_revenue": {
+      "2025-09-30 00:00:00": 0.0
+    },
+    "quarterly_eps": {
+      "2025-09-30 00:00:00": -0.001638
+    },
+    "operating_margin": 0,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T15:58:49.279048"
+}

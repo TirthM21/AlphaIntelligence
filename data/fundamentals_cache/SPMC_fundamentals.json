@@ -1,0 +1,11 @@
+{
+  "data": {
+    "ticker": "SPMC",
+    "fetch_date": "2026-02-20T16:19:56.551555",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 12463143.0
+    },
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:19:56.551844"
+}

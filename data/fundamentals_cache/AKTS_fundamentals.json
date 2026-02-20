@@ -1,0 +1,12 @@
+{
+  "data": {
+    "ticker": "AKTS",
+    "fetch_date": "2026-02-20T15:59:41.438334",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 933000.0
+    },
+    "operating_margin": -1675.78,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T15:59:41.438815"
+}

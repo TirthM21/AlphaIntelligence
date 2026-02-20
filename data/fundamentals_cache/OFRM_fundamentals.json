@@ -1,0 +1,33 @@
+{
+  "data": {
+    "ticker": "OFRM",
+    "fetch_date": "2026-02-20T16:15:13.371924",
+    "quarterly_revenue": {
+      "2024-09-30 00:00:00": 41760000.0,
+      "2024-12-31 00:00:00": 49212000.0,
+      "2025-03-31 00:00:00": NaN,
+      "2025-09-30 00:00:00": 66036000.0
+    },
+    "revenue_qoq_change": null,
+    "quarterly_eps": {
+      "2024-09-30 00:00:00": NaN,
+      "2024-12-31 00:00:00": NaN,
+      "2025-03-31 00:00:00": -2.914558,
+      "2025-09-30 00:00:00": NaN
+    },
+    "eps_qoq_change": null,
+    "gross_margin": 42.08,
+    "margin_change": NaN,
+    "operating_margin": -1.59,
+    "quarterly_inventory": {
+      "2024-12-31 00:00:00": 23673000.0,
+      "2025-03-31 00:00:00": NaN,
+      "2025-06-30 00:00:00": NaN,
+      "2025-09-30 00:00:00": 41500000.0
+    },
+    "inventory_qoq_change": null,
+    "inventory_to_sales_ratio": 0.628,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:15:13.373799"
+}

@@ -1,0 +1,13 @@
+{
+  "data": {
+    "ticker": "MWH",
+    "fetch_date": "2026-02-20T16:13:56.701165",
+    "quarterly_revenue": {
+      "2024-12-31 00:00:00": 440949000.0
+    },
+    "gross_margin": 18.48,
+    "operating_margin": 5.62,
+    "inventory_breakdown_available": false
+  },
+  "fetched_at": "2026-02-20T16:13:56.701804"
+}

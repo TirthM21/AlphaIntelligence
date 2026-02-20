@@ -1783,6 +1783,121 @@ class NewsletterGenerator:
         if self.fetcher and self.fetcher.fmp_available:
             econ_cal = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=30) 
 
+        macro_theme_keywords: Dict[str, List[str]] = {
+            "inflation": ["inflation", "cpi", "ppi", "prices", "disinflation"],
+            "labor": ["labor", "labour", "jobs", "unemployment", "payroll", "wages"],
+            "rates": ["rate", "rates", "yield", "fed", "ecb", "boe", "hike", "cut"],
+            "growth": ["gdp", "growth", "recession", "activity", "demand", "manufacturing"],
+        }
+
+        def _parse_any_datetime(raw_value: Any) -> Optional[datetime]:
+            if raw_value in (None, ""):
+                return None
+            if isinstance(raw_value, (int, float)):
+                timestamp = float(raw_value)
+                if timestamp > 1e12:
+                    timestamp = timestamp / 1000.0
+                if timestamp <= 0:
+                    return None
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            try:
+                normalized = str(raw_value).strip().replace("Z", "+00:00")
+                parsed = datetime.fromisoformat(normalized)
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+
+        def _macro_theme_for_item(item: Dict[str, Any]) -> Optional[str]:
+            haystack = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+            for theme, keywords in macro_theme_keywords.items():
+                if any(keyword in haystack for keyword in keywords):
+                    return theme
+            return None
+
+        def _fetch_quarterly_macro_news_items() -> List[Dict[str, Any]]:
+            raw_items: List[Dict[str, Any]] = []
+            fmp_fetcher = self.fetcher.fmp_fetcher if self.fetcher and self.fetcher.fmp_available else None
+
+            if self.finnhub.api_key:
+                for item in self.finnhub.fetch_top_market_news(limit=20, category="general") or []:
+                    raw_items.append(
+                        {
+                            "title": item.get("title") or item.get("headline"),
+                            "url": item.get("url"),
+                            "site": item.get("site") or "Finnhub",
+                            "summary": item.get("summary") or "",
+                            "datetime": item.get("datetime"),
+                        }
+                    )
+
+            if self.marketaux.api_key:
+                for item in self.marketaux.fetch_market_news(limit=20) or []:
+                    raw_items.append(
+                        {
+                            "title": item.get("title"),
+                            "url": item.get("url"),
+                            "site": item.get("source") or item.get("domain") or "Marketaux",
+                            "summary": item.get("description") or item.get("snippet") or "",
+                            "datetime": item.get("published_at") or item.get("publishedAt"),
+                        }
+                    )
+
+            if fmp_fetcher:
+                for item in fmp_fetcher.fetch_market_news(limit=20) or []:
+                    raw_items.append(
+                        {
+                            "title": item.get("title"),
+                            "url": item.get("url"),
+                            "site": item.get("site") or "FMP",
+                            "summary": item.get("text") or item.get("summary") or "",
+                            "datetime": item.get("publishedDate") or item.get("date"),
+                        }
+                    )
+
+            ranked = self._rank_and_dedupe_news(raw_items, limit=16, max_source_ratio=0.6)
+            macro_candidates: List[Dict[str, Any]] = []
+            for item in ranked:
+                theme = _macro_theme_for_item(item)
+                if not theme:
+                    continue
+                published_dt = _parse_any_datetime(item.get("datetime"))
+                macro_candidates.append(
+                    {
+                        "theme": theme,
+                        "title": item.get("title"),
+                        "url": item.get("url"),
+                        "source": item.get("site") or item.get("domain") or "News",
+                        "date": published_dt.strftime("%Y-%m-%d") if published_dt else "Unknown",
+                    }
+                )
+
+            if not macro_candidates:
+                return []
+
+            selected: List[Dict[str, Any]] = []
+            seen_urls: Set[str] = set()
+            for theme in ("inflation", "labor", "rates", "growth"):
+                for item in macro_candidates:
+                    url = str(item.get("url") or "")
+                    if item.get("theme") != theme or url in seen_urls:
+                        continue
+                    selected.append(item)
+                    seen_urls.add(url)
+                    break
+
+            for item in macro_candidates:
+                if len(selected) >= 5:
+                    break
+                url = str(item.get("url") or "")
+                if url in seen_urls:
+                    continue
+                selected.append(item)
+                seen_urls.add(url)
+
+            return selected[:5] if len(selected) >= 3 else []
+
+        macro_news_items = _fetch_quarterly_macro_news_items()
+
         # Enhanced AI Thesis for Quarterly
         ai_thesis = "Institutional compounder selection focused on capital efficiency and moat depth."
         if self.ai_agent.client:
@@ -2064,6 +2179,25 @@ class NewsletterGenerator:
         content.append("## 📜 Quarterly Investment Thesis")
         content.append(f"{ai_thesis}")
         content.append("")
+
+        # --- SECTION: MACRO NEWS REGIME REVIEW ---
+        content.append("## 🌐 Macro News Regime Review")
+        if macro_news_items:
+            content.append("| Date | Theme | Source | Evidence |")
+            content.append("|------|-------|--------|----------|")
+            for item in macro_news_items[:5]:
+                theme_label = str(item.get("theme", "")).title()
+                title = str(item.get("title") or "Macro news item")
+                url = str(item.get("url") or "https://alphaintelligence.capital")
+                source = str(item.get("source") or "News")
+                event_date = str(item.get("date") or "Unknown")
+                content.append(f"| {event_date} | {theme_label} | {source} | [{title}]({url}) |")
+        else:
+            content.append(
+                "*No reliable macro news evidence was fetched from active providers this run "
+                "(Finnhub/Marketaux/FMP), so macro regime commentary is intentionally constrained.*"
+            )
+        content.append("")
         
         # Deterministic diagnostics block (no AI trivia fallback)
         content.append("## 🧪 Portfolio & Macro Signal Diagnostics")
@@ -2200,6 +2334,16 @@ class NewsletterGenerator:
             "regime_label": regime_label,
             "portfolio_metrics": {k: v for k, v in current_metrics.items() if v is not None},
             "top_holdings_stats": top_holdings_stats,
+            "macro_news_items": [
+                {
+                    "date": item.get("date"),
+                    "theme": item.get("theme"),
+                    "source": item.get("source"),
+                    "title": item.get("title"),
+                    "url": item.get("url"),
+                }
+                for item in macro_news_items[:5]
+            ],
             "macro_calendar_items": [
                 {
                     "date": event.get("date"),

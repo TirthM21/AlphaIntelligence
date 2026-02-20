@@ -137,24 +137,6 @@ jobs:
             git push
           fi
       
-      - name: 🚨 Notify on Failure
-        if: failure()
-        env:
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
-        run: |
-          python -c "
-          from src.notifications.email_notifier import EmailNotifier
-          import os
-          
-          notifier = EmailNotifier()
-          notifier.send_error_alert(
-              'Daily market scan failed',
-              'Check GitHub Actions logs for details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-          )
-          "
-      
       - name: ✅ Summary
         if: always()
         run: |
@@ -169,3 +151,20 @@ jobs:
           else
             echo "❌ Newsletter generation failed" >> $GITHUB_STEP_SUMMARY
           fi
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: market-scan
+    if: always()
+
+    steps:
+      - name: Send success notification
+        if: needs.market-scan.result == 'success'
+        run: |
+          echo "✅ Daily market scan completed successfully"
+
+      - name: Send failure notification
+        if: needs.market-scan.result == 'failure'
+        run: |
+          echo "❌ Daily market scan failed - check logs"
+          exit 1

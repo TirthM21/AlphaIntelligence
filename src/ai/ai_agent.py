@@ -154,6 +154,14 @@ class AIAgent:
             extra_guardrails = f"\nFailed checks from prior draft: {', '.join(validation_issues)}. Resolve every failed check."
 
         mode_guardrails = ""
+        structural_rules = """
+        CRITICAL STRUCTURAL RULES:
+        1. MAINTAIN the '## 🏛️ AlphaIntelligence Capital BRIEF' header.
+        2. KEEP all vertical lists (e.g. Sector Performance, Market Sentiment, Today's Events) EXACTLY as they are. DO NOT convert them into tables.
+        3. Do NOT add new sections that weren't in the original text.
+        4. Maintain all technical data points, URLs, and markdown formatting.
+        5. Improve narrative transitions using concise analyst language.
+        """
         if mode == "quarterly":
             mode_guardrails = """
         QUARTERLY HARD CONSTRAINTS (non-negotiable):
@@ -161,19 +169,24 @@ class AIAgent:
         - Do not introduce percentages that are not present in the authoritative payload.
         - Do not introduce named entities (tickers, companies, institutions, events) absent from the authoritative payload.
         - If payload evidence is missing for a claim, rewrite as uncertainty-aware and evidence-limited language.
+        - Preserve markdown tables and section subtitles verbatim unless a minimal grammar edit is required.
+        - Do not rewrite deterministic numeric/reporting blocks (tables, scorecards, KPI lines, and metric bullets); only fix clear grammar.
             """
+            structural_rules = """
+        CRITICAL STRUCTURAL RULES:
+        1. Preserve existing section order and headings; do NOT add new sections.
+        2. Maintain all technical data points, URLs, and markdown formatting.
+        3. Preserve markdown tables and section subtitles verbatim unless a minimal grammar edit is required.
+        4. Do not rewrite deterministic numeric/reporting blocks (tables, scorecards, KPI lines, and metric bullets).
+        5. Improve narrative transitions using concise analyst language around the fixed reporting blocks.
+        """
 
         prompt = f"""
         Act as a professional financial editor for AlphaIntelligence Capital. 
         Enhance the following newsletter to make it sound institutional, elite, and authoritative.
         Keep voice concise, analyst-style, and evidence-led (short declarative sentences, no hype, no rhetorical questions, no clichés).
         
-        CRITICAL STRUCTURAL RULES:
-        1. MAINTAIN the '## 🏛️ AlphaIntelligence Capital BRIEF' header.
-        2. KEEP all vertical lists (e.g. Sector Performance, Market Sentiment, Today's Events) EXACTLY as they are. DO NOT convert them into tables.
-        3. Do NOT add new sections that weren't in the original text.
-        4. Maintain all technical data points, URLs, and markdown formatting.
-        5. Improve narrative transitions using concise analyst language.
+        {structural_rules}
 
         REQUIRED EVIDENCE SLOTS (must be explicit, each on its own bullet in the market overview narrative):
         - Index Move: cite index and exact move.

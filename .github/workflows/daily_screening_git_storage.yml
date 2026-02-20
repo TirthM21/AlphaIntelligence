@@ -94,7 +94,7 @@ jobs:
 
           # Conservative mode to avoid rate limits
           # --git-storage flag enables Git-based fundamental storage
-          python run_optimized_scan.py --conservative --git-storage
+          python run_optimized_scan.py --conservative --git-storage --use-fmp --send-email --universe-source exchange
 
       - name: Show fundamental refresh stats
         if: always()
@@ -162,6 +162,8 @@ jobs:
           path: |
             data/daily_scans/
             data/logs/
+            data/daily_newsletter.md
+            data/charts/
           if-no-files-found: warn  # Don't fail if no files found
           retention-days: 90  # Keep screening results for 90 days
 

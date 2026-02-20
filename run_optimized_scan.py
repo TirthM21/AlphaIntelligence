@@ -315,6 +315,8 @@ def main():
     parser.add_argument('--send-email', action='store_true', help='Force-enable newsletter email delivery')
     parser.add_argument('--no-email', action='store_true', help='Disable newsletter email delivery')
     parser.add_argument('--diagnostics', action='store_true', help='Run diagnostic check for API keys and SEC access')
+    parser.add_argument('--universe-source', type=str, default='exchange', choices=['auto','exchange','fmp','finnhub'],
+                        help='Universe source preference (default: exchange)')
 
     args = parser.parse_args()
 
@@ -412,13 +414,13 @@ def main():
         # Fetch universe
         universe_fetcher = USStockUniverseFetcher()
         logger.info("Fetching stock universe...")
-        tickers = universe_fetcher.fetch_universe()
+        tickers = universe_fetcher.fetch_universe(source_preference=args.universe_source)
 
         if not tickers:
             logger.error("Failed to fetch universe")
             sys.exit(1)
 
-        logger.info(f"Universe: {len(tickers):,} stocks")
+        logger.info(f"Universe: {len(tickers):,} stocks (source preference: {args.universe_source})")
 
         if args.tickers:
             tickers = [t.strip().upper() for t in args.tickers.split(',')]

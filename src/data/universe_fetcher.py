@@ -38,8 +38,12 @@ class USStockUniverseFetcher:
         self.cache_file = self.cache_dir / "us_stock_universe.pkl"
         logger.info("USStockUniverseFetcher initialized")
 
-    def _fetch_from_fmp(self) -> pd.DataFrame:
-        """Fetch stock list from Financial Modeling Prep with Finnhub fallback."""
+    def _fetch_from_fmp(self, allow_finnhub_fallback: bool = True) -> pd.DataFrame:
+        """Fetch stock list from Financial Modeling Prep.
+
+        Args:
+            allow_finnhub_fallback: When True, fallback to Finnhub if FMP is unavailable.
+        """
         try:
             fmp = FMPFetcher()
             if fmp.api_key:
@@ -62,13 +66,14 @@ class USStockUniverseFetcher:
             else:
                 logger.info("FMP API key not set. Trying Finnhub fallback for universe fetch...")
 
-            finnhub = FinnhubFetcher()
-            stocks = finnhub.fetch_us_stock_symbols()
-            if stocks:
-                df = pd.DataFrame(stocks)
-                if 'symbol' in df.columns and 'name' in df.columns:
-                    logger.info(f"Finnhub universe fallback: {len(df)} US stocks fetched")
-                    return df[['symbol', 'name']].copy()
+            if allow_finnhub_fallback:
+                finnhub = FinnhubFetcher()
+                stocks = finnhub.fetch_us_stock_symbols()
+                if stocks:
+                    df = pd.DataFrame(stocks)
+                    if 'symbol' in df.columns and 'name' in df.columns:
+                        logger.info(f"Finnhub universe fallback: {len(df)} US stocks fetched")
+                        return df[['symbol', 'name']].copy()
 
             logger.warning("Finnhub fallback returned empty stock list")
             return pd.DataFrame()
@@ -161,27 +166,65 @@ class USStockUniverseFetcher:
 
         return df
 
-    def fetch_universe(self, force_refresh: bool = False) -> List[str]:
+    def _fetch_from_finnhub(self) -> pd.DataFrame:
+        """Fetch stock list directly from Finnhub."""
+        try:
+            finnhub = FinnhubFetcher()
+            stocks = finnhub.fetch_us_stock_symbols()
+            if stocks:
+                df = pd.DataFrame(stocks)
+                if 'symbol' in df.columns and 'name' in df.columns:
+                    logger.info(f"Finnhub universe: {len(df)} US stocks fetched")
+                    return df[['symbol', 'name']].copy()
+            logger.warning("Finnhub returned empty stock list")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.error(f"Error fetching universe from Finnhub: {e}")
+            return pd.DataFrame()
+
+    def fetch_universe(self, force_refresh: bool = False, source_preference: str = "auto") -> List[str]:
         """Fetch the complete universe of US-listed stocks.
 
         Args:
             force_refresh: Force refresh even if cached data is recent
+            source_preference: Universe source strategy. One of:
+                - auto: FMP -> Finnhub fallback -> exchange FTP fallback
+                - exchange: NASDAQ FTP + other-listed FTP only
+                - fmp: FMP only
+                - finnhub: Finnhub only
 
         Returns:
             List of stock ticker symbols
         """
         # Check cache
+        source_preference = (source_preference or "auto").strip().lower()
+        valid_sources = {"auto", "exchange", "fmp", "finnhub"}
+        if source_preference not in valid_sources:
+            logger.warning(
+                "Unknown source_preference '%s'. Falling back to auto.",
+                source_preference,
+            )
+            source_preference = "auto"
+
         if not force_refresh and self.cache_file.exists():
             cache_age = datetime.now() - datetime.fromtimestamp(
                 self.cache_file.stat().st_mtime
             )
 
-            if cache_age < timedelta(days=1):
+            with open(self.cache_file, 'rb') as f:
+                cached_data = pickle.load(f)
+
+            requested_source = cached_data.get('metadata', {}).get('requested_source', 'auto')
+            if cache_age < timedelta(days=1) and requested_source == source_preference:
                 logger.info("Loading universe from cache")
-                with open(self.cache_file, 'rb') as f:
-                    cached_data = pickle.load(f)
                 logger.info(f"Loaded {len(cached_data['symbols'])} symbols from cache")
                 return cached_data['symbols']
+            if requested_source != source_preference:
+                logger.info(
+                    "Cached universe source '%s' does not match requested '%s'; refreshing.",
+                    requested_source,
+                    source_preference,
+                )
 
         logger.info("Fetching fresh universe from exchanges...")
 
@@ -190,22 +233,40 @@ class USStockUniverseFetcher:
         fmp_count = 0
         source = "nasdaq_ftp"
 
-        # Try FMP first (faster, more reliable, includes metadata)
-        fmp_df = self._fetch_from_fmp()
-        
-        if not fmp_df.empty and len(fmp_df) > 1000:
-            logger.info(f"Using FMP as primary universe source ({len(fmp_df)} stocks)")
-            all_stocks = fmp_df
-            source = "fmp"
-            fmp_count = len(fmp_df)
-        else:
-            # Fallback to NASDAQ FTP
-            logger.info("FMP unavailable or insufficient, falling back to NASDAQ FTP...")
+        if source_preference == "exchange":
+            logger.info("Using exchange-only universe source (NASDAQ FTP + other-listed FTP)")
             nasdaq_df = self._fetch_nasdaq_listed()
             other_df = self._fetch_other_listed()
             nasdaq_count = len(nasdaq_df)
             other_count = len(other_df)
             all_stocks = pd.concat([nasdaq_df, other_df], ignore_index=True)
+            source = "exchange"
+        elif source_preference == "fmp":
+            logger.info("Using FMP-only universe source")
+            fmp_df = self._fetch_from_fmp(allow_finnhub_fallback=False)
+            all_stocks = fmp_df
+            source = "fmp"
+            fmp_count = len(fmp_df)
+        elif source_preference == "finnhub":
+            logger.info("Using Finnhub-only universe source")
+            all_stocks = self._fetch_from_finnhub()
+            source = "finnhub"
+        else:
+            # auto
+            fmp_df = self._fetch_from_fmp(allow_finnhub_fallback=True)
+            if not fmp_df.empty and len(fmp_df) > 1000:
+                logger.info(f"Using auto universe source ({len(fmp_df)} stocks)")
+                all_stocks = fmp_df
+                source = "fmp_or_finnhub"
+                fmp_count = len(fmp_df)
+            else:
+                logger.info("API universe unavailable or insufficient, falling back to exchange FTP...")
+                nasdaq_df = self._fetch_nasdaq_listed()
+                other_df = self._fetch_other_listed()
+                nasdaq_count = len(nasdaq_df)
+                other_count = len(other_df)
+                all_stocks = pd.concat([nasdaq_df, other_df], ignore_index=True)
+                source = "exchange_fallback"
 
         if all_stocks.empty:
             logger.error("Failed to fetch any stocks")
@@ -229,6 +290,7 @@ class USStockUniverseFetcher:
             'count': len(symbols),
             'metadata': {
                 'source': source,
+                'requested_source': source_preference,
                 'fmp_count': fmp_count,
                 'nasdaq_count': nasdaq_count,
                 'other_count': other_count,

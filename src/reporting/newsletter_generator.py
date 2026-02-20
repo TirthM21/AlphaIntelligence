@@ -745,6 +745,71 @@ class NewsletterGenerator:
         assembled = "\n\n".join(x for x in [prefix, body] if x).rstrip() + "\n"
         return assembled, reports
 
+
+    def _build_evidence_payload(
+        self,
+        market_news: List[Dict[str, Any]],
+        sector_perf: Dict[str, float],
+        index_perf: Dict[str, float],
+        top_buys: List[Dict[str, Any]],
+        top_sells: List[Dict[str, Any]],
+        earnings_cal: List[Dict[str, Any]],
+        econ_calendar: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Build authoritative evidence payload for daily newsletter AI validation."""
+        allowed_named_entities: Set[str] = set()
+        allowed_percentages: Set[str] = set()
+
+        for ticker in index_perf.keys():
+            allowed_named_entities.add(str(ticker).upper())
+        for ticker in sector_perf.keys():
+            allowed_named_entities.add(str(ticker))
+
+        for item in top_buys[:12] + top_sells[:12]:
+            symbol = str(item.get("symbol", "")).strip().upper()
+            if symbol:
+                allowed_named_entities.add(symbol)
+            move = item.get("change_pct")
+            if isinstance(move, (int, float)):
+                allowed_percentages.add(f"{float(move):.2f}%")
+
+        for event in earnings_cal[:12]:
+            symbol = str(event.get("symbol", "")).strip().upper()
+            if symbol:
+                allowed_named_entities.add(symbol)
+
+        for event in econ_calendar[:16]:
+            event_name = str(event.get("event", "")).strip()
+            if event_name:
+                allowed_named_entities.add(event_name)
+
+        for item in market_news[:12]:
+            site = str(item.get("site", "")).strip()
+            if site:
+                allowed_named_entities.add(site)
+            title = str(item.get("title", "")).strip()
+            if title:
+                for token in re.findall(r"\b[A-Z]{2,5}\b", title):
+                    allowed_named_entities.add(token)
+
+        for move in list(index_perf.values()) + list(sector_perf.values()):
+            if isinstance(move, (int, float)):
+                allowed_percentages.add(f"{float(move):.2f}%")
+
+        return {
+            "report_type": "daily",
+            "time_horizon": "short_horizon_market_tape",
+            "market_news": market_news[:10],
+            "sector_perf": sector_perf,
+            "index_perf": index_perf,
+            "top_buys": top_buys[:10],
+            "top_sells": top_sells[:10],
+            "earnings_cal": earnings_cal[:10],
+            "econ_calendar": econ_calendar[:10],
+            "allowed_named_entities": sorted(e for e in allowed_named_entities if e),
+            "allowed_percentages": sorted(allowed_percentages),
+        }
+
     def generate_newsletter(self, 
                           market_status: Dict = None, 
                           top_buys: List[Dict] = None,
@@ -2342,6 +2407,8 @@ class NewsletterGenerator:
                 named_entities.add(name)
 
         quarterly_evidence_payload = {
+            "report_type": "quarterly",
+            "time_horizon": "multi_quarter_regime_allocation",
             "quarter": f"Q{q} {year}",
             "regime_label": regime_label,
             "portfolio_metrics": {k: v for k, v in current_metrics.items() if v is not None},

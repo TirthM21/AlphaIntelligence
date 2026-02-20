@@ -74,7 +74,7 @@ class AIAgent:
             evidence_payload=evidence_payload,
             prior_newsletter_md=prior_newsletter_md,
             mode="daily",
-            fallback_to_template=False,
+            fallback_to_template=True,
         )
 
     def enhance_quarterly_newsletter_with_validation(
@@ -131,12 +131,12 @@ class AIAgent:
         )
         retry = self._call_ai(retry_prompt, temperature=0.05)
         if not retry:
-            return newsletter_md if fallback_to_template else enhanced
+            return newsletter_md
 
         retry_issues = self._validate_newsletter(retry, evidence_payload, prior_newsletter_md, mode=mode)
         if not retry_issues:
             return retry
-        return newsletter_md if fallback_to_template else enhanced
+        return newsletter_md
 
     def _build_newsletter_prompt(
         self,
@@ -164,6 +164,10 @@ class AIAgent:
         """
         if mode == "quarterly":
             mode_guardrails = """
+        TIME-HORIZON REQUIREMENT:
+        - Quarterly mode is strictly multi-quarter and regime/allocation focused.
+        - Do NOT include short-horizon tape commentary, intraday framing, or "today/tomorrow" catalyst language.
+
         QUARTERLY HARD CONSTRAINTS (non-negotiable):
         - Do not express macro outcomes with certainty (forbidden: will, guaranteed, certain, inevitably).
         - Do not introduce percentages that are not present in the authoritative payload.
@@ -180,6 +184,12 @@ class AIAgent:
         4. Do not rewrite deterministic numeric/reporting blocks (tables, scorecards, KPI lines, and metric bullets).
         5. Improve narrative transitions using concise analyst language around the fixed reporting blocks.
         """
+        else:
+            mode_guardrails = """
+        TIME-HORIZON REQUIREMENT:
+        - Daily mode is short-horizon only: prioritize market tape, near-term catalysts, and immediate event risk.
+        - Avoid multi-quarter allocation/regime language unless it is explicitly anchored to same-day payload context.
+            """
 
         prompt = f"""
         Act as a professional financial editor for AlphaIntelligence Capital. 
@@ -236,6 +246,18 @@ class AIAgent:
             issues.append("unsupported claims not present in fetched data payload")
 
         if mode == "quarterly":
+            required_sections = [
+                "quarterly investment thesis",
+                "macro news regime review",
+                "portfolio governance & architecture",
+                "event horizon — key quarterly catalysts",
+            ]
+            forbidden_sections = [
+                "new since yesterday",
+                "today's events",
+                "sector performance",
+            ]
+
             forward_certainty = re.search(r"\b(will|guaranteed?|certain(?:ly)?|inevitably|undoubtedly)\b", text, flags=re.IGNORECASE)
             if forward_certainty:
                 issues.append("forward macro certainty language is not allowed")
@@ -243,6 +265,28 @@ class AIAgent:
             unsupported_percentages = self._find_unsupported_percentages(text, evidence_payload)
             if unsupported_percentages:
                 issues.append("unsupported percentages not present in evidence payload")
+
+            if re.search(r"\b(today|tomorrow|this week|intraday)\b", text, flags=re.IGNORECASE):
+                issues.append("quarterly draft contains daily short-horizon language")
+        else:
+            required_sections = [
+                "new since yesterday",
+                "today's events",
+                "sector performance",
+            ]
+            forbidden_sections = [
+                "quarterly investment thesis",
+                "macro news regime review",
+                "portfolio governance & architecture",
+                "event horizon — key quarterly catalysts",
+            ]
+
+        for section in required_sections:
+            if section not in lower_text:
+                issues.append(f"missing required {mode} section: {section}")
+        for section in forbidden_sections:
+            if section in lower_text:
+                issues.append(f"cross-mode section leakage detected: {section}")
 
         return issues
 

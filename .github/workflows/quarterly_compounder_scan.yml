@@ -1,9 +1,6 @@
 name: Quarterly Compounder Scan
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     # Run quarterly: Jan 15, Apr 15, Jul 15, Oct 15
     - cron: '0 9 15 1 *'   # January 15 at 9 AM UTC
@@ -56,6 +53,13 @@ jobs:
           RUN_STARTED_AT="$(date -u +'%Y-%m-%d %H:%M:%S')"
           mkdir -p logs
 
+          for required_secret in EMAIL_SENDER EMAIL_PASSWORD EMAIL_RECIPIENT; do
+            if [ -z "${!required_secret}" ]; then
+              echo "❌ Missing required email secret: ${required_secret}"
+              exit 1
+            fi
+          done
+
           # Persist shared email credentials to .env for workflow parity.
           cat > .env <<EOF
           EMAIL_SENDER=${EMAIL_SENDER}
@@ -76,6 +80,15 @@ jobs:
             echo "❌ No fresh quarterly newsletter artifact found in data/newsletters/quarterly/quarterly_compounder_*.md"
             exit 1
           fi
+
+          QUARTERLY_ARTIFACT_PATH="$(find data/newsletters/quarterly -maxdepth 1 -type f -name 'quarterly_compounder_*.md' -newermt "$RUN_STARTED_AT" | sort | tail -n 1)"
+          echo "QUARTERLY_ARTIFACT_PATH=${QUARTERLY_ARTIFACT_PATH}" >> "$GITHUB_ENV"
+
+          if grep -Eqi 'email.*(sent|success|delivered)' logs/quarterly_newsletter.log; then
+            echo "QUARTERLY_EMAIL_STATUS=✅ Email send confirmed in logs" >> "$GITHUB_ENV"
+          else
+            echo "QUARTERLY_EMAIL_STATUS=❌ Email send not confirmed in logs (check logs/quarterly_newsletter.log)" >> "$GITHUB_ENV"
+          fi
           echo "✅ Fresh quarterly newsletter artifact detected"
         timeout-minutes: 30
 
@@ -86,6 +99,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Run Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** Success" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Newsletter artifact path: ${QUARTERLY_ARTIFACT_PATH:-❌ Not generated}" >> $GITHUB_STEP_SUMMARY
+          echo "- Email send status: ${QUARTERLY_EMAIL_STATUS:-❌ Unknown (scan step may have failed before email check)}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Generated Files" >> $GITHUB_STEP_SUMMARY
           ls -lh data/quarterly_reports/allocation_model_*.csv 2>/dev/null | awk '{print "- " $9}' >> $GITHUB_STEP_SUMMARY || echo "- CSV files pending" >> $GITHUB_STEP_SUMMARY

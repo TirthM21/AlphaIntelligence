@@ -315,8 +315,15 @@ def main():
     parser.add_argument('--send-email', action='store_true', help='Force-enable newsletter email delivery')
     parser.add_argument('--no-email', action='store_true', help='Disable newsletter email delivery')
     parser.add_argument('--diagnostics', action='store_true', help='Run diagnostic check for API keys and SEC access')
+    parser.add_argument('--universe-source', type=str, default='exchange', choices=['auto','exchange','fmp','finnhub'],
+                        help='Universe source preference (default: exchange)')
+    parser.add_argument('--prefetch-storage', action='store_true', help='Warm git storage fundamentals before scan')
+    parser.add_argument('--no-prefetch-storage', action='store_true', help='Skip warm-up storage pass before scan')
 
     args = parser.parse_args()
+
+    # By default, prefetch storage when git-storage mode is used
+    args.prefetch_storage = (args.prefetch_storage or args.git_storage) and not args.no_prefetch_storage
 
     # Email defaults: enabled when configured unless explicitly disabled
     send_email_default = os.getenv('SEND_NEWSLETTER_EMAIL', '1').strip().lower() not in {'0', 'false', 'no'}
@@ -412,13 +419,13 @@ def main():
         # Fetch universe
         universe_fetcher = USStockUniverseFetcher()
         logger.info("Fetching stock universe...")
-        tickers = universe_fetcher.fetch_universe()
+        tickers = universe_fetcher.fetch_universe(source_preference=args.universe_source)
 
         if not tickers:
             logger.error("Failed to fetch universe")
             sys.exit(1)
 
-        logger.info(f"Universe: {len(tickers):,} stocks")
+        logger.info(f"Universe: {len(tickers):,} stocks (source preference: {args.universe_source})")
 
         if args.tickers:
             tickers = [t.strip().upper() for t in args.tickers.split(',')]
@@ -451,6 +458,11 @@ def main():
 
         if args.clear_progress:
             processor.clear_progress()
+
+        # Optional storage-first warm-up
+        if args.prefetch_storage and args.git_storage:
+            logger.info("Running storage-first fundamentals warm-up before scan...")
+            processor.prefetch_fundamentals_storage(tickers)
 
         # Process
         results = processor.process_batch_parallel(
@@ -626,9 +638,10 @@ def main():
                     
                     # Build subscriber list: always include ENV recipient, optionally add DB subscribers
                     subscribers = []
-                    default_recipient = os.getenv('EMAIL_RECIPIENT')
+                    default_recipient = os.getenv('EMAIL_RECIPIENT') or os.getenv('EMAIL_TO')
                     if default_recipient:
-                        subscribers.append(default_recipient)
+                        env_recipients = [x.strip() for x in default_recipient.split(',') if x.strip()]
+                        subscribers.extend(env_recipients)
                     
                     # Try to add database subscribers (optional — works without DB)
                     try:

@@ -23,6 +23,10 @@ on:
         description: 'Send email newsletter'
         required: false
         default: 'true'
+      universe_source:
+        description: 'Universe source (exchange, auto, fmp, finnhub)'
+        required: false
+        default: 'exchange'
 
 jobs:
   market-scan:
@@ -57,8 +61,11 @@ jobs:
         run: |
           echo "🚀 Starting daily market scan..."
           
+          UNIVERSE_SOURCE="${{ github.event.inputs.universe_source || 'exchange' }}"
+          echo "✓ Universe source: $UNIVERSE_SOURCE"
+
           # Build command with options
-          CMD="python run_optimized_scan.py --workers 3 --delay 0.5"
+          CMD="python run_optimized_scan.py --workers 3 --delay 0.5 --universe-source $UNIVERSE_SOURCE"
           
           # Add FMP if enabled
           if [ "${{ github.event.inputs.use_fmp || 'true' }}" = "true" ]; then

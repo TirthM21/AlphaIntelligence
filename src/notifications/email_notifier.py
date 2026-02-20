@@ -27,11 +27,11 @@ class EmailNotifier:
     
     def __init__(self):
         """Initialize email notifier with Gmail SMTP settings."""
-        self.smtp_server = "smtp.gmail.com"
-        self.smtp_port = 587
+        self.smtp_server = os.getenv('EMAIL_SMTP_SERVER', "smtp.gmail.com")
+        self.smtp_port = int(os.getenv('EMAIL_SMTP_PORT', "587"))
         
         # Get credentials from environment
-        self.sender_email = os.getenv('EMAIL_SENDER')
+        self.sender_email = os.getenv('EMAIL_SENDER') or os.getenv('EMAIL_FROM')
         raw_password = os.getenv('EMAIL_PASSWORD', '')
         # Gmail App Passwords are displayed as 'xxxx xxxx xxxx xxxx'
         # but SMTP login requires the 16-char version without spaces
@@ -40,7 +40,7 @@ class EmailNotifier:
         # Debug: log password length (NOT the password itself) for troubleshooting
         if self.sender_password:
             logger.debug(f"Email password loaded: {len(self.sender_password)} characters")
-        self.recipient_email = os.getenv('EMAIL_RECIPIENT', self.sender_email)
+        self.recipient_email = os.getenv('EMAIL_RECIPIENT') or os.getenv('EMAIL_TO') or self.sender_email
         
         self.enabled = bool(self.sender_email and self.sender_password)
         
@@ -64,9 +64,15 @@ class EmailNotifier:
             if not raw_src or self._is_remote_image_source(raw_src):
                 return match.group(0)
 
+            # Resolve from CWD first (handles markdown paths like ./data/charts/...),
+            # then fall back to newsletter directory-relative resolution.
             resolved = Path(raw_src)
             if not resolved.is_absolute():
-                resolved = (base_dir / raw_src).resolve()
+                cwd_candidate = resolved.resolve()
+                if cwd_candidate.exists() and cwd_candidate.is_file():
+                    resolved = cwd_candidate
+                else:
+                    resolved = (base_dir / raw_src).resolve()
 
             if not resolved.exists() or not resolved.is_file():
                 logger.warning("Newsletter image path not found; leaving source unchanged: %s", raw_src)

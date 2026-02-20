@@ -677,28 +677,57 @@ def main():
             if args.send_email:
                 try:
                     logger.info("Preparing AlphaIntelligence Capital email delivery...")
-
-                    # Build subscriber list: always include ENV recipient, optionally add DB subscribers
+                    
+                    # Build subscriber list: always include ENV recipient(s), optionally add DB subscribers
                     subscribers = []
-                    default_recipient = os.getenv('EMAIL_RECIPIENT') or os.getenv('EMAIL_TO')
-                    if default_recipient:
-                        env_recipients = [x.strip() for x in default_recipient.split(',') if x.strip()]
+                    env_var_source = None
+                    env_recipients = []
+
+                    raw_env_recipients = os.getenv('EMAIL_RECIPIENT')
+                    if raw_env_recipients:
+                        env_var_source = 'EMAIL_RECIPIENT'
+                    else:
+                        raw_env_recipients = os.getenv('EMAIL_TO')
+                        if raw_env_recipients:
+                            env_var_source = 'EMAIL_TO'
+                            logger.info("EMAIL_RECIPIENT not set; using EMAIL_TO fallback alias for recipients.")
+
+                    if raw_env_recipients:
+                        seen_emails = set()
+                        for value in raw_env_recipients.split(','):
+                            email = value.strip()
+                            if not email:
+                                continue
+                            dedupe_key = email.lower()
+                            if dedupe_key in seen_emails:
+                                continue
+                            seen_emails.add(dedupe_key)
+                            env_recipients.append(email)
                         subscribers.extend(env_recipients)
 
                     # Try to add database subscribers (optional — works without DB)
+                    db_added_count = 0
                     try:
                         db = DBManager()
                         db_subs = db.get_active_subscribers()
                         for email in db_subs:
                             if email not in subscribers:
                                 subscribers.append(email)
+                                db_added_count += 1
                     except Exception as db_err:
                         logger.warning(f"Could not fetch DB subscribers (non-fatal): {db_err}")
 
-                    email_summary['recipients_targeted'] = len(subscribers)
+                    env_source_label = f"env:{env_var_source}" if env_var_source else "env:none"
+                    logger.info(
+                        "Recipient sources prepared: %s sanitized recipient(s), db recipient(s) added: %d, merged total: %d",
+                        env_source_label,
+                        len(env_recipients),
+                        db_added_count,
+                        len(subscribers),
+                    )
+                    
                     if not subscribers:
-                        logger.warning("No recipients configured. Set EMAIL_RECIPIENT in .env or add subscribers to DB.")
-                        email_failure_reasons.append('no_recipients_configured')
+                        logger.warning("No recipients configured. Set EMAIL_RECIPIENT/EMAIL_TO in .env or add subscribers to DB.")
                     else:
                         logger.info(f"Sending newsletter to {len(subscribers)} recipient(s)...")
                         notifier = EmailNotifier()

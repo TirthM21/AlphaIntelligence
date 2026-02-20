@@ -154,6 +154,8 @@ class AIAgent:
             extra_guardrails = f"\nFailed checks from prior draft: {', '.join(validation_issues)}. Resolve every failed check."
 
         mode_guardrails = ""
+        payload_mode = str(evidence_payload.get("report_type", mode)).strip().lower() or mode
+        time_horizon_days = evidence_payload.get("time_horizon_days")
         structural_rules = """
         CRITICAL STRUCTURAL RULES:
         1. MAINTAIN the '## 🏛️ AlphaIntelligence Capital BRIEF' header.
@@ -165,8 +167,9 @@ class AIAgent:
         if mode == "quarterly":
             mode_guardrails = """
         TIME-HORIZON REQUIREMENT:
-        - Quarterly mode is strictly multi-quarter and regime/allocation focused.
-        - Do NOT include short-horizon tape commentary, intraday framing, or "today/tomorrow" catalyst language.
+        - Quarterly mode is strictly multi-quarter (90-365+ day) and regime/allocation focused.
+        - Frame commentary around allocation durability, drawdown control, and multi-quarter catalysts.
+        - Do NOT include short-horizon tape commentary, intraday framing, or "today/tomorrow/this week" catalyst language.
 
         QUARTERLY HARD CONSTRAINTS (non-negotiable):
         - Do not express macro outcomes with certainty (forbidden: will, guaranteed, certain, inevitably).
@@ -187,8 +190,9 @@ class AIAgent:
         else:
             mode_guardrails = """
         TIME-HORIZON REQUIREMENT:
-        - Daily mode is short-horizon only: prioritize market tape, near-term catalysts, and immediate event risk.
-        - Avoid multi-quarter allocation/regime language unless it is explicitly anchored to same-day payload context.
+        - Daily mode is strictly short-horizon (1-3 day) market tape.
+        - Prioritize immediate catalysts, next-session setup, and event risk inside the next 1-3 trading days.
+        - Avoid regime/allocation/multi-quarter language unless explicitly anchored to immediate tape risk.
             """
 
         prompt = f"""
@@ -208,6 +212,11 @@ class AIAgent:
         - Reuse at most {max_reused_sentences} full sentence(s) from prior day's newsletter text.
         {mode_guardrails}
 
+        MODE MARKERS (must be respected exactly):
+        - report_type: {payload_mode}
+        - time_horizon_days: {time_horizon_days}
+        - If these markers conflict with draft language, rewrite the draft to match the markers.
+
         DATA PAYLOAD (authoritative facts only):
         {json.dumps(self._sanitize_data(evidence_payload), indent=2)}
 
@@ -225,6 +234,11 @@ class AIAgent:
     def _validate_newsletter(self, text: str, evidence_payload: Dict, prior_newsletter_md: str, mode: str = "daily") -> List[str]:
         """Validate generated newsletter for evidence anchors, repetition, and unsupported claims."""
         issues = []
+
+        payload_report_type = str(evidence_payload.get("report_type", mode)).strip().lower() or mode
+        expected_mode = "quarterly" if payload_report_type == "quarterly" else "daily"
+        if mode != expected_mode:
+            issues.append(f"mode mismatch: validator mode={mode} payload report_type={payload_report_type}")
 
         lower_text = text.lower()
         if mode != "quarterly":
@@ -257,6 +271,16 @@ class AIAgent:
                 "today's events",
                 "sector performance",
             ]
+            forbidden_terms = [
+                "market open",
+                "opening bell",
+                "into tomorrow",
+                "next session",
+                "intraday",
+                "pre-market",
+                "post-market",
+            ]
+            required_mode_terms = ["regime", "allocation", "multi-quarter"]
 
             forward_certainty = re.search(r"\b(will|guaranteed?|certain(?:ly)?|inevitably|undoubtedly)\b", text, flags=re.IGNORECASE)
             if forward_certainty:
@@ -280,6 +304,14 @@ class AIAgent:
                 "portfolio governance & architecture",
                 "event horizon — key quarterly catalysts",
             ]
+            forbidden_terms = [
+                "multi-quarter",
+                "strategic asset allocation",
+                "portfolio governance",
+                "regime review",
+                "12-month",
+            ]
+            required_mode_terms = ["today", "new since yesterday", "catalyst"]
 
         for section in required_sections:
             if section not in lower_text:
@@ -287,6 +319,20 @@ class AIAgent:
         for section in forbidden_sections:
             if section in lower_text:
                 issues.append(f"cross-mode section leakage detected: {section}")
+        for term in forbidden_terms:
+            if term in lower_text:
+                issues.append(f"cross-mode language leakage detected: {term}")
+
+        for term in required_mode_terms:
+            if term not in lower_text:
+                issues.append(f"missing {mode} narrative marker: {term}")
+
+        time_horizon_days = evidence_payload.get("time_horizon_days")
+        if isinstance(time_horizon_days, (int, float)):
+            if mode == "daily" and time_horizon_days > 7:
+                issues.append("daily payload time_horizon_days exceeds short-horizon limit")
+            if mode == "quarterly" and time_horizon_days < 60:
+                issues.append("quarterly payload time_horizon_days below multi-quarter limit")
 
         return issues
 

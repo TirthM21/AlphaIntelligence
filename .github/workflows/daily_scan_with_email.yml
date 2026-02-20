@@ -64,14 +64,12 @@ jobs:
           done
 
           # Persist shared email credentials to .env for workflow parity.
-          cat > .env <<EOF
-          EMAIL_SENDER=${EMAIL_SENDER}
-          EMAIL_PASSWORD=${EMAIL_PASSWORD}
-          EMAIL_RECIPIENT=${EMAIL_RECIPIENT}
-          EOF
-          set -a
-          source .env
-          set +a
+          # Quote values so secrets containing spaces/shell tokens remain valid dotenv entries.
+          {
+            printf 'EMAIL_SENDER=%q\n' "$EMAIL_SENDER"
+            printf 'EMAIL_PASSWORD=%q\n' "$EMAIL_PASSWORD"
+            printf 'EMAIL_RECIPIENT=%q\n' "$EMAIL_RECIPIENT"
+          } > .env
           
           UNIVERSE_SOURCE="${{ github.event.inputs.universe_source || 'exchange' }}"
           echo "✓ Universe source: $UNIVERSE_SOURCE"

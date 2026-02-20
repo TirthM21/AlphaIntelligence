@@ -4,7 +4,7 @@ import json
 import os
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 from html import escape
@@ -1774,6 +1774,11 @@ class NewsletterGenerator:
         year = quarter_date.year
 
         trending = self.marketaux.fetch_trending_entities() if self.marketaux.api_key else []
+        trending_window_minutes = 1440
+        min_trending_entities = 3
+        min_documents = 3
+        max_entity_age_minutes = 72 * 60
+        min_sentiment_confidence = 0.20
         econ_cal = []
         if self.fetcher and self.fetcher.fmp_available:
             econ_cal = self.fetcher.fmp_fetcher.fetch_economic_calendar(days_forward=30) 
@@ -1858,6 +1863,97 @@ class NewsletterGenerator:
         if econ_cal:
             high_impact_count = sum(1 for event in econ_cal if str(event.get("impact", "")).lower() == "high")
             current_metrics["high_impact_events"] = float(high_impact_count)
+
+        strategy_universe = {
+            str(sym).upper()
+            for sym in list(portfolio.allocations.keys()) + list(top_stocks.keys()) + list(top_etfs.keys())
+            if str(sym).strip()
+        }
+        supported_exchanges = {"NASDAQ", "NYSE", "AMEX", "ARCA", "BATS"}
+        supported_instruments = {"stock", "etf", "index", "adr", "equity"}
+
+        def _entity_timestamp(item: Dict[str, Any]) -> Optional[datetime]:
+            for key in ("updated_at", "published_at", "last_seen_at", "most_recent_document_at", "created_at"):
+                value = item.get(key)
+                if not value:
+                    continue
+                normalized = str(value).strip().replace("Z", "+00:00")
+                try:
+                    parsed = datetime.fromisoformat(normalized)
+                    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+            return None
+
+        def _entity_confidence(item: Dict[str, Any]) -> float:
+            for key in ("sentiment_confidence", "confidence", "score", "match_score"):
+                value = _safe_float(item.get(key))
+                if value is not None:
+                    return value
+            return 0.0
+
+        def _in_supported_universe(item: Dict[str, Any]) -> bool:
+            key = str(item.get("key", "")).upper().strip()
+            if not key:
+                return False
+            if key in strategy_universe:
+                return True
+
+            exchange = str(item.get("exchange") or item.get("exchange_name") or "").upper().strip()
+            instrument = str(item.get("instrument_type") or item.get("type") or item.get("asset_type") or "").lower().strip()
+            symbol_like = bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,6}", key))
+            return symbol_like and ((exchange in supported_exchanges) or (instrument in supported_instruments))
+
+        def _quality_labels(item: Dict[str, Any], age_minutes: float, confidence: float) -> str:
+            labels: List[str] = []
+            doc_count = int(_safe_float(item.get("total_documents")) or 0)
+            sentiment = _safe_float(item.get("sentiment_avg")) or 0.0
+            if doc_count >= 8:
+                labels.append("High mention velocity")
+            if sentiment >= 0.25:
+                labels.append("Positive sentiment skew")
+            elif sentiment <= -0.25:
+                labels.append("Negative sentiment skew")
+            if age_minutes <= 120:
+                labels.append("Fresh coverage burst")
+            if confidence < (min_sentiment_confidence + 0.10):
+                labels.append("Low-confidence mention")
+            return ", ".join(labels[:2]) if labels else "Balanced mention profile"
+
+        filtered_trending_entities: List[Dict[str, Any]] = []
+        now_utc = datetime.now(timezone.utc)
+        for item in trending:
+            if not _in_supported_universe(item):
+                continue
+
+            docs = int(_safe_float(item.get("total_documents")) or 0)
+            if docs < min_documents:
+                continue
+
+            ts = _entity_timestamp(item)
+            if ts is None:
+                continue
+            age_minutes = (now_utc - ts.astimezone(timezone.utc)).total_seconds() / 60.0
+            if age_minutes > max_entity_age_minutes:
+                continue
+
+            confidence = _entity_confidence(item)
+            if confidence < min_sentiment_confidence:
+                continue
+
+            enriched = dict(item)
+            enriched["_age_minutes"] = age_minutes
+            enriched["_confidence"] = confidence
+            enriched["_label"] = _quality_labels(item, age_minutes, confidence)
+            filtered_trending_entities.append(enriched)
+
+        filtered_trending_entities.sort(
+            key=lambda ent: (
+                -int(_safe_float(ent.get("total_documents")) or 0),
+                -(_safe_float(ent.get("sentiment_avg")) or 0.0),
+                ent.get("_age_minutes", float("inf")),
+            )
+        )
 
         regime_score = current_metrics.get("regime_sentiment")
         regime_label = "Neutral"
@@ -1983,12 +2079,19 @@ class NewsletterGenerator:
         content.append("")
 
         # --- SECTION: MARKET TRENDING ---
-        if trending:
+        if len(filtered_trending_entities) >= min_trending_entities:
             content.append("## 🛸 Trending Institutional Interest")
+            content.append(
+                f"*Source: Marketaux trending entities (US), lookback {trending_window_minutes // 60}h, "
+                f"filters: docs≥{min_documents}, age≤{max_entity_age_minutes // 60}h, confidence≥{min_sentiment_confidence:.2f}.*"
+            )
             content.append("| Sector/Entity | Sentiment | Volume | Analysis |")
             content.append("|---------------|-----------|--------|----------|")
-            for ent in trending[:5]:
-                content.append(f"| {ent.get('key')} | {ent.get('sentiment_avg', 0):+.2f} | {ent.get('total_documents')} docs | Market Leader |")
+            for ent in filtered_trending_entities[:5]:
+                content.append(
+                    f"| {ent.get('key')} | {ent.get('sentiment_avg', 0):+.2f} | "
+                    f"{ent.get('total_documents')} docs | {ent.get('_label')} |"
+                )
             content.append("")
 
         # --- SECTION: PORTFOLIO ARCHITECTURE ---
@@ -2083,7 +2186,7 @@ class NewsletterGenerator:
         named_entities: Set[str] = {f"Q{q}", str(year)}
         for ticker, _ in sorted_alloc[:10]:
             named_entities.add(str(ticker).upper())
-        for item in trending[:8]:
+        for item in filtered_trending_entities[:8]:
             key = str(item.get("key", "")).strip()
             if key:
                 named_entities.add(key)

@@ -1,6 +1,10 @@
 name: Quarterly Compounder Scan
 
 on:
+  push:
+    branches:
+      - main
+
   schedule:
     # Run quarterly: Jan 15, Apr 15, Jul 15, Oct 15
     - cron: '0 9 15 1 *'   # January 15 at 9 AM UTC
@@ -10,6 +14,12 @@ on:
 
   # Allow manual trigger
   workflow_dispatch:
+    inputs:
+      send_email:
+        description: 'Send the quarterly scan email (requires configured recipient secrets)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   quarterly-newsletter-scan:
@@ -53,25 +63,42 @@ jobs:
           RUN_STARTED_AT="$(date -u +'%Y-%m-%d %H:%M:%S')"
           mkdir -p logs
 
-          for required_secret in EMAIL_SENDER EMAIL_PASSWORD EMAIL_RECIPIENT; do
-            if [ -z "${!required_secret}" ]; then
-              echo "❌ Missing required email secret: ${required_secret}"
-              exit 1
-            fi
-          done
+          SEND_EMAIL=false
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            SEND_EMAIL=true
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.send_email || 'false' }}" = "true" ]; then
+            SEND_EMAIL=true
+          fi
 
-          # Persist shared email credentials to .env for workflow parity.
-          # Quote values so secrets containing spaces/shell tokens remain valid dotenv entries.
-          {
-            printf 'EMAIL_SENDER=%q\n' "$EMAIL_SENDER"
-            printf 'EMAIL_PASSWORD=%q\n' "$EMAIL_PASSWORD"
-            printf 'EMAIL_RECIPIENT=%q\n' "$EMAIL_RECIPIENT"
-          } > .env
+          CMD=(
+            python run_quarterly_compounder_scan.py
+            --log-level INFO
+            --output-dir data/quarterly_reports
+          )
 
-          python run_quarterly_compounder_scan.py \
-            --log-level INFO \
-            --output-dir data/quarterly_reports \
-            --send-email 2>&1 | tee logs/quarterly_newsletter.log
+          if [ "$SEND_EMAIL" = "true" ]; then
+            for required_secret in EMAIL_SENDER EMAIL_PASSWORD EMAIL_RECIPIENT; do
+              if [ -z "${!required_secret}" ]; then
+                echo "❌ Missing required email secret: ${required_secret}"
+                exit 1
+              fi
+            done
+
+            # Persist shared email credentials to .env for workflow parity.
+            # Quote values so secrets containing spaces/shell tokens remain valid dotenv entries.
+            {
+              printf 'EMAIL_SENDER=%q\n' "$EMAIL_SENDER"
+              printf 'EMAIL_PASSWORD=%q\n' "$EMAIL_PASSWORD"
+              printf 'EMAIL_RECIPIENT=%q\n' "$EMAIL_RECIPIENT"
+            } > .env
+
+            CMD+=(--send-email)
+            echo "QUARTERLY_EMAIL_STATUS=⏳ Email send requested (event-eligible + explicit opt-in)" >> "$GITHUB_ENV"
+          else
+            echo "QUARTERLY_EMAIL_STATUS=⏭️ Email disabled for this run (push or manual run without opt-in)" >> "$GITHUB_ENV"
+          fi
+
+          "${CMD[@]}" 2>&1 | tee logs/quarterly_newsletter.log
 
           echo "🔎 Verifying quarterly newsletter artifact freshness..."
           if ! find data/newsletters/quarterly -maxdepth 1 -type f -name 'quarterly_compounder_*.md' -newermt "$RUN_STARTED_AT" | grep -q .; then
@@ -82,10 +109,12 @@ jobs:
           QUARTERLY_ARTIFACT_PATH="$(find data/newsletters/quarterly -maxdepth 1 -type f -name 'quarterly_compounder_*.md' -newermt "$RUN_STARTED_AT" | sort | tail -n 1)"
           echo "QUARTERLY_ARTIFACT_PATH=${QUARTERLY_ARTIFACT_PATH}" >> "$GITHUB_ENV"
 
-          if grep -Eqi 'email.*(sent|success|delivered)' logs/quarterly_newsletter.log; then
-            echo "QUARTERLY_EMAIL_STATUS=✅ Email send confirmed in logs" >> "$GITHUB_ENV"
-          else
-            echo "QUARTERLY_EMAIL_STATUS=❌ Email send not confirmed in logs (check logs/quarterly_newsletter.log)" >> "$GITHUB_ENV"
+          if [ "$SEND_EMAIL" = "true" ]; then
+            if grep -Eqi 'email.*(sent|success|delivered)' logs/quarterly_newsletter.log; then
+              echo "QUARTERLY_EMAIL_STATUS=✅ Email send confirmed in logs" >> "$GITHUB_ENV"
+            else
+              echo "QUARTERLY_EMAIL_STATUS=❌ Email send not confirmed in logs (check logs/quarterly_newsletter.log)" >> "$GITHUB_ENV"
+            fi
           fi
           echo "✅ Fresh quarterly newsletter artifact detected"
         timeout-minutes: 30

@@ -799,6 +799,8 @@ class NewsletterGenerator:
         return {
             "report_type": "daily",
             "time_horizon": "short_horizon_market_tape",
+            "time_horizon_days": 3,
+            "mode_requirements": "Daily report; focus on market tape and catalysts within 1-3 days.",
             "market_news": market_news[:10],
             "sector_perf": sector_perf,
             "index_perf": index_perf,
@@ -2409,6 +2411,8 @@ class NewsletterGenerator:
         quarterly_evidence_payload = {
             "report_type": "quarterly",
             "time_horizon": "multi_quarter_regime_allocation",
+            "time_horizon_days": 180,
+            "mode_requirements": "Quarterly report; focus on regime and allocation over multiple quarters.",
             "quarter": f"Q{q} {year}",
             "regime_label": regime_label,
             "portfolio_metrics": {k: v for k, v in current_metrics.items() if v is not None},

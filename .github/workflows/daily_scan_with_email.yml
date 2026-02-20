@@ -43,6 +43,7 @@ jobs:
           pip install -r requirements.txt
       
       - name: 🔍 Run Daily Newsletter Scan
+        id: daily_scan
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
@@ -75,7 +76,7 @@ jobs:
           echo "✓ Universe source: $UNIVERSE_SOURCE"
 
           # Build command with options
-          CMD="python run_optimized_scan.py --workers 3 --delay 0.5 --universe-source $UNIVERSE_SOURCE --send-email"
+          CMD="python run_optimized_scan.py --workers 3 --delay 0.5 --universe-source $UNIVERSE_SOURCE --send-email --strict-email"
           
           # Add FMP if enabled
           if [ "${{ github.event.inputs.use_fmp || 'true' }}" = "true" ]; then
@@ -92,23 +93,37 @@ jobs:
           echo "✓ Email newsletter enabled (--send-email)"
           
           echo "Running: $CMD"
+          set -o pipefail
           bash -lc "$CMD" 2>&1 | tee logs/daily_newsletter.log
+          SCAN_EXIT=$?
 
           echo "🔎 Verifying daily newsletter artifact freshness..."
+          ARTIFACT_EXIT=0
           if ! find data/newsletters -maxdepth 1 -type f -name 'daily_newsletter_*.md' -newermt "$RUN_STARTED_AT" | grep -q .; then
             echo "❌ No fresh daily newsletter artifact found in data/newsletters/daily_newsletter_*.md"
-            exit 1
-          fi
-
-          DAILY_ARTIFACT_PATH="$(find data/newsletters -maxdepth 1 -type f -name 'daily_newsletter_*.md' -newermt "$RUN_STARTED_AT" | sort | tail -n 1)"
-          echo "DAILY_ARTIFACT_PATH=${DAILY_ARTIFACT_PATH}" >> "$GITHUB_ENV"
-
-          if grep -Eqi 'email.*(sent|success|delivered)' logs/daily_newsletter.log; then
-            echo "DAILY_EMAIL_STATUS=✅ Email send confirmed in logs" >> "$GITHUB_ENV"
+            ARTIFACT_EXIT=1
           else
-            echo "DAILY_EMAIL_STATUS=❌ Email send not confirmed in logs (check logs/daily_newsletter.log)" >> "$GITHUB_ENV"
+            DAILY_ARTIFACT_PATH="$(find data/newsletters -maxdepth 1 -type f -name 'daily_newsletter_*.md' -newermt "$RUN_STARTED_AT" | sort | tail -n 1)"
+            echo "DAILY_ARTIFACT_PATH=${DAILY_ARTIFACT_PATH}" >> "$GITHUB_ENV"
+            echo "✅ Fresh daily newsletter artifact detected"
           fi
-          echo "✅ Fresh daily newsletter artifact detected"
+
+          EMAIL_SUCCESS_COUNT="$(awk -F= '/^email_successes=/{print $2}' "$GITHUB_OUTPUT" | tail -n 1)"
+          EMAIL_ATTEMPTS="$(awk -F= '/^email_attempts=/{print $2}' "$GITHUB_OUTPUT" | tail -n 1)"
+          EMAIL_TARGETED="$(awk -F= '/^email_recipients_targeted=/{print $2}' "$GITHUB_OUTPUT" | tail -n 1)"
+          EMAIL_FAILURE_REASON="$(awk -F= '/^email_top_failure_reason=/{print $2}' "$GITHUB_OUTPUT" | tail -n 1)"
+          EMAIL_SUCCESS_COUNT="${EMAIL_SUCCESS_COUNT:-unknown}"
+          EMAIL_ATTEMPTS="${EMAIL_ATTEMPTS:-unknown}"
+          EMAIL_TARGETED="${EMAIL_TARGETED:-unknown}"
+          EMAIL_FAILURE_REASON="${EMAIL_FAILURE_REASON:-unknown}"
+          echo "DAILY_EMAIL_STATUS=attempts=${EMAIL_ATTEMPTS}, successes=${EMAIL_SUCCESS_COUNT}, targeted=${EMAIL_TARGETED}, top_failure_reason=${EMAIL_FAILURE_REASON}" >> "$GITHUB_ENV"
+
+          if [ "$SCAN_EXIT" -ne 0 ]; then
+            exit "$SCAN_EXIT"
+          fi
+          if [ "$ARTIFACT_EXIT" -ne 0 ]; then
+            exit "$ARTIFACT_EXIT"
+          fi
       
       - name: 📊 Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -147,6 +162,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Newsletter artifact path: ${DAILY_ARTIFACT_PATH:-❌ Not generated}" >> $GITHUB_STEP_SUMMARY
           echo "- Email send status: ${DAILY_EMAIL_STATUS:-❌ Unknown (scan step may have failed before email check)}" >> $GITHUB_STEP_SUMMARY
+          echo "- Email JSON summary: `${{ steps.daily_scan.outputs.email_summary_json || 'N/A' }}`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ -f "data/daily_newsletter.md" ]; then

@@ -1859,6 +1859,14 @@ class NewsletterGenerator:
             high_impact_count = sum(1 for event in econ_cal if str(event.get("impact", "")).lower() == "high")
             current_metrics["high_impact_events"] = float(high_impact_count)
 
+        regime_score = current_metrics.get("regime_sentiment")
+        regime_label = "Neutral"
+        if regime_score is not None:
+            if regime_score >= 0.15:
+                regime_label = "Constructive"
+            elif regime_score <= -0.15:
+                regime_label = "Defensive"
+
         diagnostic_rows: List[Dict[str, str]] = []
 
         def _add_row(metric: str, current: str, prior: str, interpretation: str) -> None:
@@ -2052,9 +2060,62 @@ class NewsletterGenerator:
         content.append("[Portal Access](https://alphaintelligence.capital/portal)")
 
         final_md = "\n".join(content)
+
+        top_holdings_stats: List[Dict[str, Any]] = []
+        for ticker, alloc in sorted_alloc[:10]:
+            meta = top_stocks.get(ticker, top_etfs.get(ticker, {}))
+            top_holdings_stats.append(
+                {
+                    "ticker": ticker,
+                    "allocation_pct": round(float(alloc) * 100, 2),
+                    "score": _safe_float(meta.get("score")),
+                    "label": meta.get("sector") or meta.get("theme") or "Unknown",
+                }
+            )
+
+        allowed_percentages: Set[str] = set()
+        for _, alloc in sorted_alloc[:10]:
+            allowed_percentages.add(f"{float(alloc) * 100:.2f}%")
+        for val in current_metrics.values():
+            if val is not None and abs(val) <= 1:
+                allowed_percentages.add(f"{float(val) * 100:.2f}%")
+
+        named_entities: Set[str] = {f"Q{q}", str(year)}
+        for ticker, _ in sorted_alloc[:10]:
+            named_entities.add(str(ticker).upper())
+        for item in trending[:8]:
+            key = str(item.get("key", "")).strip()
+            if key:
+                named_entities.add(key)
+        for event in econ_cal[:10]:
+            name = str(event.get("event", "")).strip()
+            if name:
+                named_entities.add(name)
+
+        quarterly_evidence_payload = {
+            "quarter": f"Q{q} {year}",
+            "regime_label": regime_label,
+            "portfolio_metrics": {k: v for k, v in current_metrics.items() if v is not None},
+            "top_holdings_stats": top_holdings_stats,
+            "macro_calendar_items": [
+                {
+                    "date": event.get("date"),
+                    "event": event.get("event"),
+                    "impact": event.get("impact", "Medium"),
+                }
+                for event in econ_cal[:10]
+            ],
+            "allowed_percentages": sorted(allowed_percentages),
+            "allowed_named_entities": sorted(named_entities),
+        }
+
         if self.ai_agent.client:
-             logger.info("Enhancing quarterly newsletter prose with AI...")
-             final_md = self.ai_agent.enhance_newsletter(final_md)
+            logger.info("Enhancing quarterly newsletter prose with AI + evidence validation...")
+            final_md = self.ai_agent.enhance_quarterly_newsletter_with_validation(
+                final_md,
+                evidence_payload=quarterly_evidence_payload,
+                prior_newsletter_md="",
+            )
 
         state_payload = state if isinstance(state, dict) else {"runs": []}
         history_payload = state_payload.get("quarterly_diagnostics")

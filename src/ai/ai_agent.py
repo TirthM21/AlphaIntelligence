@@ -69,6 +69,38 @@ class AIAgent:
         prior_newsletter_md: str = ""
     ) -> str:
         """Enhance newsletter prose with validation and constrained regeneration."""
+        return self._enhance_with_validation(
+            newsletter_md,
+            evidence_payload=evidence_payload,
+            prior_newsletter_md=prior_newsletter_md,
+            mode="daily",
+            fallback_to_template=False,
+        )
+
+    def enhance_quarterly_newsletter_with_validation(
+        self,
+        newsletter_md: str,
+        evidence_payload: Optional[Dict] = None,
+        prior_newsletter_md: str = "",
+    ) -> str:
+        """Enhance quarterly newsletter with hard evidence constraints and deterministic fallback."""
+        return self._enhance_with_validation(
+            newsletter_md,
+            evidence_payload=evidence_payload,
+            prior_newsletter_md=prior_newsletter_md,
+            mode="quarterly",
+            fallback_to_template=True,
+        )
+
+    def _enhance_with_validation(
+        self,
+        newsletter_md: str,
+        evidence_payload: Optional[Dict],
+        prior_newsletter_md: str,
+        mode: str,
+        fallback_to_template: bool,
+    ) -> str:
+        """Shared constrained enhancement path for newsletter variants."""
         if not self.client:
             return newsletter_md
 
@@ -78,12 +110,13 @@ class AIAgent:
             evidence_payload,
             prior_newsletter_md=prior_newsletter_md,
             stricter=False,
+            mode=mode,
         )
         enhanced = self._call_ai(base_prompt, low_temp=True)
         if not enhanced:
             return newsletter_md
 
-        issues = self._validate_newsletter(enhanced, evidence_payload, prior_newsletter_md)
+        issues = self._validate_newsletter(enhanced, evidence_payload, prior_newsletter_md, mode=mode)
         if not issues:
             return enhanced
 
@@ -94,13 +127,16 @@ class AIAgent:
             prior_newsletter_md=prior_newsletter_md,
             stricter=True,
             validation_issues=issues,
+            mode=mode,
         )
         retry = self._call_ai(retry_prompt, temperature=0.05)
         if not retry:
-            return enhanced
+            return newsletter_md if fallback_to_template else enhanced
 
-        retry_issues = self._validate_newsletter(retry, evidence_payload, prior_newsletter_md)
-        return retry if not retry_issues else enhanced
+        retry_issues = self._validate_newsletter(retry, evidence_payload, prior_newsletter_md, mode=mode)
+        if not retry_issues:
+            return retry
+        return newsletter_md if fallback_to_template else enhanced
 
     def _build_newsletter_prompt(
         self,
@@ -109,12 +145,23 @@ class AIAgent:
         prior_newsletter_md: str = "",
         stricter: bool = False,
         validation_issues: Optional[List[str]] = None,
+        mode: str = "daily",
     ) -> str:
         """Construct constrained newsletter editing prompt."""
         max_reused_sentences = 0 if stricter else 1
         extra_guardrails = ""
         if validation_issues:
             extra_guardrails = f"\nFailed checks from prior draft: {', '.join(validation_issues)}. Resolve every failed check."
+
+        mode_guardrails = ""
+        if mode == "quarterly":
+            mode_guardrails = """
+        QUARTERLY HARD CONSTRAINTS (non-negotiable):
+        - Do not express macro outcomes with certainty (forbidden: will, guaranteed, certain, inevitably).
+        - Do not introduce percentages that are not present in the authoritative payload.
+        - Do not introduce named entities (tickers, companies, institutions, events) absent from the authoritative payload.
+        - If payload evidence is missing for a claim, rewrite as uncertainty-aware and evidence-limited language.
+            """
 
         prompt = f"""
         Act as a professional financial editor for AlphaIntelligence Capital. 
@@ -136,6 +183,7 @@ class AIAgent:
 
         SENTENCE REUSE CONSTRAINT:
         - Reuse at most {max_reused_sentences} full sentence(s) from prior day's newsletter text.
+        {mode_guardrails}
 
         DATA PAYLOAD (authoritative facts only):
         {json.dumps(self._sanitize_data(evidence_payload), indent=2)}
@@ -151,18 +199,19 @@ class AIAgent:
         """
         return prompt
 
-    def _validate_newsletter(self, text: str, evidence_payload: Dict, prior_newsletter_md: str) -> List[str]:
+    def _validate_newsletter(self, text: str, evidence_payload: Dict, prior_newsletter_md: str, mode: str = "daily") -> List[str]:
         """Validate generated newsletter for evidence anchors, repetition, and unsupported claims."""
         issues = []
 
         lower_text = text.lower()
-        required_slot_terms = ["index move", "sector leader", "laggard", "mover", "event"]
-        if not all(term in lower_text for term in required_slot_terms):
-            issues.append("missing explicit evidence slots")
+        if mode != "quarterly":
+            required_slot_terms = ["index move", "sector leader", "laggard", "mover", "event"]
+            if not all(term in lower_text for term in required_slot_terms):
+                issues.append("missing explicit evidence slots")
 
-        numeric_anchors = re.findall(r"[-+]?\d+(?:\.\d+)?%?", text)
-        if len(numeric_anchors) < 8:
-            issues.append("missing numeric anchors")
+            numeric_anchors = re.findall(r"[-+]?\d+(?:\.\d+)?%?", text)
+            if len(numeric_anchors) < 8:
+                issues.append("missing numeric anchors")
 
         if prior_newsletter_md:
             repeated = self._find_reused_phrases(text, prior_newsletter_md)
@@ -173,7 +222,27 @@ class AIAgent:
         if unsupported:
             issues.append("unsupported claims not present in fetched data payload")
 
+        if mode == "quarterly":
+            forward_certainty = re.search(r"\b(will|guaranteed?|certain(?:ly)?|inevitably|undoubtedly)\b", text, flags=re.IGNORECASE)
+            if forward_certainty:
+                issues.append("forward macro certainty language is not allowed")
+
+            unsupported_percentages = self._find_unsupported_percentages(text, evidence_payload)
+            if unsupported_percentages:
+                issues.append("unsupported percentages not present in evidence payload")
+
         return issues
+
+    def _find_unsupported_percentages(self, text: str, evidence_payload: Dict) -> List[str]:
+        """Reject percentages not anchored to explicit evidence allow-list."""
+        allowed_percentages = set(str(v).strip() for v in (evidence_payload.get("allowed_percentages") or []))
+        if not allowed_percentages:
+            return re.findall(r"\b\d+(?:\.\d+)?%\b", text)[:5]
+        unsupported = []
+        for pct in re.findall(r"\b\d+(?:\.\d+)?%\b", text):
+            if pct not in allowed_percentages:
+                unsupported.append(pct)
+        return unsupported[:5]
 
     def _find_reused_phrases(self, current_text: str, prior_text: str) -> List[str]:
         """Return long repeated phrases reused from prior run."""
@@ -185,10 +254,17 @@ class AIAgent:
         """Detect referenced symbols/events that are not in payload allow-list."""
         payload_blob = json.dumps(self._sanitize_data(evidence_payload)).lower()
         unsupported_tokens = []
+        allowed_entities = {str(v).strip().lower() for v in (evidence_payload.get("allowed_named_entities") or []) if str(v).strip()}
 
         for token in re.findall(r"\b[A-Z]{2,5}\b", text):
-            if token.lower() not in payload_blob and token not in {"SMA", "RSI", "GDP", "CPI", "EPS"}:
+            if token in {"SMA", "RSI", "GDP", "CPI", "EPS"}:
+                continue
+            if allowed_entities:
+                if token.lower() not in allowed_entities:
+                    unsupported_tokens.append(token)
+            elif token.lower() not in payload_blob:
                 unsupported_tokens.append(token)
+
 
         return unsupported_tokens[:5]
 

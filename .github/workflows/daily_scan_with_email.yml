@@ -1,9 +1,6 @@
 name: Daily Market Scan & Newsletter
 
 on:
-  push:
-    branches:
-      - main
   # Run every day at 8:00 AM IST (2:30 AM UTC)
   schedule:
     - cron: '30 2 * * *'  # Daily at 2:30 AM UTC (8:00 AM IST)
@@ -17,10 +14,6 @@ on:
         default: 'true'
       download_sec:
         description: 'Download SEC filings'
-        required: false
-        default: 'true'
-      send_email:
-        description: 'Send email newsletter'
         required: false
         default: 'true'
       universe_source:
@@ -63,6 +56,13 @@ jobs:
           RUN_STARTED_AT="$(date -u +'%Y-%m-%d %H:%M:%S')"
           mkdir -p logs
 
+          for required_secret in EMAIL_SENDER EMAIL_PASSWORD EMAIL_RECIPIENT; do
+            if [ -z "${!required_secret}" ]; then
+              echo "❌ Missing required email secret: ${required_secret}"
+              exit 1
+            fi
+          done
+
           # Persist shared email credentials to .env for workflow parity.
           cat > .env <<EOF
           EMAIL_SENDER=${EMAIL_SENDER}
@@ -77,7 +77,7 @@ jobs:
           echo "✓ Universe source: $UNIVERSE_SOURCE"
 
           # Build command with options
-          CMD="python run_optimized_scan.py --workers 3 --delay 0.5 --universe-source $UNIVERSE_SOURCE"
+          CMD="python run_optimized_scan.py --workers 3 --delay 0.5 --universe-source $UNIVERSE_SOURCE --send-email"
           
           # Add FMP if enabled
           if [ "${{ github.event.inputs.use_fmp || 'true' }}" = "true" ]; then
@@ -91,11 +91,7 @@ jobs:
             echo "✓ SEC filing downloads enabled"
           fi
           
-          # Add email if enabled
-          if [ "${{ github.event.inputs.send_email || 'true' }}" = "true" ]; then
-            CMD="$CMD --send-email"
-            echo "✓ Email newsletter enabled"
-          fi
+          echo "✓ Email newsletter enabled (--send-email)"
           
           echo "Running: $CMD"
           bash -lc "$CMD" 2>&1 | tee logs/daily_newsletter.log
@@ -104,6 +100,15 @@ jobs:
           if ! find data/newsletters -maxdepth 1 -type f -name 'daily_newsletter_*.md' -newermt "$RUN_STARTED_AT" | grep -q .; then
             echo "❌ No fresh daily newsletter artifact found in data/newsletters/daily_newsletter_*.md"
             exit 1
+          fi
+
+          DAILY_ARTIFACT_PATH="$(find data/newsletters -maxdepth 1 -type f -name 'daily_newsletter_*.md' -newermt "$RUN_STARTED_AT" | sort | tail -n 1)"
+          echo "DAILY_ARTIFACT_PATH=${DAILY_ARTIFACT_PATH}" >> "$GITHUB_ENV"
+
+          if grep -Eqi 'email.*(sent|success|delivered)' logs/daily_newsletter.log; then
+            echo "DAILY_EMAIL_STATUS=✅ Email send confirmed in logs" >> "$GITHUB_ENV"
+          else
+            echo "DAILY_EMAIL_STATUS=❌ Email send not confirmed in logs (check logs/daily_newsletter.log)" >> "$GITHUB_ENV"
           fi
           echo "✅ Fresh daily newsletter artifact detected"
       
@@ -159,6 +164,9 @@ jobs:
         if: always()
         run: |
           echo "## 📊 Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Newsletter artifact path: ${DAILY_ARTIFACT_PATH:-❌ Not generated}" >> $GITHUB_STEP_SUMMARY
+          echo "- Email send status: ${DAILY_EMAIL_STATUS:-❌ Unknown (scan step may have failed before email check)}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ -f "data/daily_newsletter.md" ]; then

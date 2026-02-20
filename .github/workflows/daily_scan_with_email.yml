@@ -41,6 +41,32 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: 🧪 Email config preflight
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || secrets.EMAIL_FROM }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT || secrets.EMAIL_TO }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER || 'smtp.gmail.com' }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT || '587' }}
+        run: |
+          echo "Running email configuration preflight checks..."
+
+          MISSING_VARS=()
+          for required_secret in EMAIL_SENDER EMAIL_PASSWORD EMAIL_RECIPIENT; do
+            if [ -z "${!required_secret}" ]; then
+              MISSING_VARS+=("$required_secret")
+            fi
+          done
+
+          if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+            echo "::warning::Missing required email configuration variable(s): ${MISSING_VARS[*]}. Configure EMAIL_SENDER/EMAIL_FROM, EMAIL_PASSWORD, and EMAIL_RECIPIENT/EMAIL_TO in repository secrets."
+            echo "::error::Email preflight failed. Daily scan keeps --send-email enabled, so configure the missing secrets before rerunning this workflow."
+            exit 1
+          fi
+
+          echo "✅ Email preflight passed (required variables are set)."
+          echo "ℹ️ SMTP server/port defaults will be used if secrets are not configured."
       
       - name: 🔍 Run Daily Newsletter Scan
         id: daily_scan
@@ -49,20 +75,15 @@ jobs:
           FREE_LLM_API_KEY: ${{ secrets.FREE_LLM_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || secrets.EMAIL_FROM }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT || secrets.EMAIL_TO }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER || 'smtp.gmail.com' }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT || '587' }}
         run: |
           echo "🚀 Starting daily market scan..."
           RUN_STARTED_AT="$(date -u +'%Y-%m-%d %H:%M:%S')"
           mkdir -p logs
-
-          for required_secret in EMAIL_SENDER EMAIL_PASSWORD EMAIL_RECIPIENT; do
-            if [ -z "${!required_secret}" ]; then
-              echo "❌ Missing required email secret: ${required_secret}"
-              exit 1
-            fi
-          done
 
           # Persist shared email credentials to .env for workflow parity.
           # Quote values so secrets containing spaces/shell tokens remain valid dotenv entries.
@@ -70,6 +91,8 @@ jobs:
             printf 'EMAIL_SENDER=%q\n' "$EMAIL_SENDER"
             printf 'EMAIL_PASSWORD=%q\n' "$EMAIL_PASSWORD"
             printf 'EMAIL_RECIPIENT=%q\n' "$EMAIL_RECIPIENT"
+            printf 'EMAIL_SMTP_SERVER=%q\n' "$EMAIL_SMTP_SERVER"
+            printf 'EMAIL_SMTP_PORT=%q\n' "$EMAIL_SMTP_PORT"
           } > .env
           
           UNIVERSE_SOURCE="${{ github.event.inputs.universe_source || 'exchange' }}"
